@@ -31,7 +31,7 @@
 
 include $(RTE_SDK)/mk/rte.vars.mk
 
-DIRS-$(CONFIG_RTE_APP_TEST) += test
+#DIRS-$(CONFIG_RTE_APP_TEST) += test
 DIRS-$(CONFIG_RTE_LIBRTE_ACL) += test-acl
 DIRS-$(CONFIG_RTE_LIBRTE_PIPELINE) += test-pipeline
 DIRS-$(CONFIG_RTE_TEST_PMD) += test-pmd
