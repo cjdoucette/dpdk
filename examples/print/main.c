@@ -52,46 +52,6 @@ static const struct rte_eth_conf port_conf_default = {
 
 static unsigned nb_ports;
 
-static struct {
-	uint64_t total_cycles;
-	uint64_t total_pkts;
-} latency_numbers;
-
-
-static uint16_t
-add_timestamps(uint8_t port __rte_unused, uint16_t qidx __rte_unused,
-		struct rte_mbuf **pkts, uint16_t nb_pkts,
-		uint16_t max_pkts __rte_unused, void *_ __rte_unused)
-{
-	unsigned i;
-	uint64_t now = rte_rdtsc();
-
-	for (i = 0; i < nb_pkts; i++)
-		pkts[i]->udata64 = now;
-	return nb_pkts;
-}
-
-static uint16_t
-calc_latency(uint8_t port __rte_unused, uint16_t qidx __rte_unused,
-		struct rte_mbuf **pkts, uint16_t nb_pkts, void *_ __rte_unused)
-{
-	uint64_t cycles = 0;
-	uint64_t now = rte_rdtsc();
-	unsigned i;
-
-	for (i = 0; i < nb_pkts; i++)
-		cycles += now - pkts[i]->udata64;
-	latency_numbers.total_cycles += cycles;
-	latency_numbers.total_pkts += nb_pkts;
-
-	if (latency_numbers.total_pkts > (100 * 1000 * 1000ULL)) {
-		printf("Latency = %"PRIu64" cycles\n",
-		latency_numbers.total_cycles / latency_numbers.total_pkts);
-		latency_numbers.total_cycles = latency_numbers.total_pkts = 0;
-	}
-	return nb_pkts;
-}
-
 /*
  * Initialises a given port using global settings and with the rx buffers
  * coming from the mbuf_pool passed as parameter
@@ -140,9 +100,6 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 			addr.addr_bytes[4], addr.addr_bytes[5]);
 
 	rte_eth_promiscuous_enable(port);
-	rte_eth_add_rx_callback(port, 0, add_timestamps, NULL);
-	rte_eth_add_tx_callback(port, 0, calc_latency, NULL);
-
 	return 0;
 }
 
@@ -178,16 +135,7 @@ lcore_main(void)
 			for (buf = 0; buf < nb_rx; buf++) {
 				struct rte_mbuf *mbuf = bufs[buf];
 				unsigned int len = rte_pktmbuf_data_len(mbuf);
-				unsigned char *ptr;
-				unsigned int i;
-
-				printf("Received pkt of len %u on port %hhu\n",
-					len, port);
-				ptr = rte_pktmbuf_mtod(mbuf, unsigned char *);
-				for (i = 0; i < len; i++) {
-					printf("%02hhx ", ptr[i]);
-				}
-				printf("\n\n");
+				rte_pktmbuf_dump(stdout, mbuf, len);
 				rte_pktmbuf_free(mbuf);
 			}
 		}
