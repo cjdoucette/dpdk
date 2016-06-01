@@ -52,6 +52,28 @@ static const struct rte_eth_conf port_conf_default = {
 
 static unsigned nb_ports;
 
+static void
+rx_vlan_strip_set(uint8_t port_id, int on)
+{
+        int diag;
+        int vlan_offload = rte_eth_dev_get_vlan_offload(port_id);
+
+	printf("vlan_offload: %08x\n", vlan_offload);
+
+        if (on)
+                vlan_offload |= ETH_VLAN_STRIP_OFFLOAD;
+        else
+                vlan_offload &= ~ETH_VLAN_STRIP_OFFLOAD;
+
+        diag = rte_eth_dev_set_vlan_offload(port_id, vlan_offload);
+        if (diag < 0)
+                printf("rx_vlan_strip_set(port_pi=%d, on=%d) failed "
+               "diag=%d\n", port_id, on, diag);
+
+        vlan_offload = rte_eth_dev_get_vlan_offload(port_id);
+	printf("vlan_offload: %08x\n", vlan_offload);
+}
+
 /*
  * Initialises a given port using global settings and with the rx buffers
  * coming from the mbuf_pool passed as parameter
@@ -67,7 +89,6 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 	if (port >= rte_eth_dev_count())
 		return -1;
 
-	/* Disable hardware VLAN stripping. */
 	port_conf.rxmode.hw_vlan_strip = 0;
 	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
 	if (retval != 0)
@@ -102,6 +123,8 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 			addr.addr_bytes[4], addr.addr_bytes[5]);
 
 	rte_eth_promiscuous_enable(port);
+	/* Disable VLAN stripping. */
+	rx_vlan_strip_set(port, 0);
 
 	return 0;
 }
@@ -130,25 +153,16 @@ lcore_main(void)
 			struct rte_mbuf *bufs[BURST_SIZE];
 			const uint16_t nb_rx = rte_eth_rx_burst(port, 0,
 					bufs, BURST_SIZE);
-			uint16_t i;
+			uint16_t buf;
+
 			if (unlikely(nb_rx == 0))
 				continue;
 
-			printf("received %hu pkts on port %hhu\n", nb_rx, port);
-			/* Strip old VLAN and put in another one. */
-			for (i = 0; i < nb_rx; i++) {
-				rte_vlan_strip(bufs[i]);
-				bufs[i]->vlan_tci = 0xc0de;
-				rte_vlan_insert(&bufs[i]);
-			}
-
-			const uint16_t nb_tx = rte_eth_tx_burst(port ^ 1, 0,
-					bufs, nb_rx);
-			if (unlikely(nb_tx < nb_rx)) {
-				uint16_t buf;
-
-				for (buf = nb_tx; buf < nb_rx; buf++)
-					rte_pktmbuf_free(bufs[buf]);
+			for (buf = 0; buf < nb_rx; buf++) {
+				struct rte_mbuf *mbuf = bufs[buf];
+				unsigned int len = rte_pktmbuf_data_len(mbuf);
+				rte_pktmbuf_dump(stdout, mbuf, len);
+				rte_pktmbuf_free(mbuf);
 			}
 		}
 	}
