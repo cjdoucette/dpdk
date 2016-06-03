@@ -22,7 +22,7 @@ The application can be run with:
 
 ## Packet Generation
 
-The sample stream file, `arp_to_dpdk`, can be opened in Ostinato and run. Change the MAC addresses in the stream file according to your local settings.
+The sample stream file, `vlan_to_dpdk`, can be opened in Ostinato and run. Change the MAC addresses in the stream file according to your local settings.
 
 ## Known Issues
 
