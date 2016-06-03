@@ -59,6 +59,13 @@
 #define USE_VLAN_HARDWARE_OFFLOAD 1
 
 /*
+ * The code can be configured to insert a VLAN tag on transmission
+ * if this flag is set to 1. If it is, then the tag specified by
+ * VLAN_TAG will be used.
+ */
+#define INSERT_VLAN_TAG 1
+
+/*
  * If we know that we're going to insert an egress VLAN tag, we
  * can keep the ingress VLAN tag while processing the packet and
  * then just overwrite the tag at the end. This avoids copying
@@ -165,8 +172,10 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 	 */
 	if (USE_VLAN_HARDWARE_OFFLOAD) {
 		port_conf.rxmode.hw_vlan_strip = 1;
-		port_conf.txmode.hw_vlan_insert_pvid = 1;
-		port_conf.txmode.pvid = VLAN_TAG;
+		if (INSERT_VLAN_TAG) {
+			port_conf.txmode.hw_vlan_insert_pvid = 1;
+			port_conf.txmode.pvid = VLAN_TAG;
+		}
 	}
 	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
 	if (retval != 0)
@@ -210,8 +219,10 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 	if (USE_VLAN_HARDWARE_OFFLOAD) {
 		rx_vlan_strip_set(port, 1);
 		rx_vlan_strip_set_on_queue(port, 0, 1);
-		tx_vlan_pvid_set(port, VLAN_TAG, 1);
-		vlan_tpid_set(port, ETH_VLAN_TYPE_INNER, VLAN_TAG);
+		if (INSERT_VLAN_TAG) {
+			tx_vlan_pvid_set(port, VLAN_TAG, 1);
+			vlan_tpid_set(port, ETH_VLAN_TYPE_INNER, VLAN_TAG);
+		}
 	}
 
 	return 0;
@@ -296,7 +307,7 @@ process_vlan(const uint8_t port, struct rte_mbuf **mbufs, const uint16_t nb_rx)
 				struct vlan_hdr *vlan_hdr;
 				vlan_hdr = (struct vlan_hdr *)(eth_hdr + 1);
 				vlan_hdr->vlan_tci = rte_cpu_to_be_16(VLAN_TAG);
-			} else {
+			} else if (INSERT_VLAN_TAG) {
 				/* Insert VLAN tag. */
 				mbufs[i]->ol_flags |= PKT_TX_VLAN_PKT;
 				mbufs[i]->vlan_tci = VLAN_TAG;
