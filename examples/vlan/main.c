@@ -46,12 +46,20 @@
 #define MBUF_CACHE_SIZE 250
 #define BURST_SIZE 32
 
+#define USE_HARDWARE_VLAN_STRIPPING 1
+
 static const struct rte_eth_conf port_conf_default = {
 	.rxmode = { .max_rx_pkt_len = ETHER_MAX_LEN, },
 };
 
 static unsigned nb_ports;
 
+/*
+ * TODO Is it better to enable/disable hardware VLAN stripping/insertion
+ * using rte_eth_dev_set_vlan_offload() or rte_eth_dev_configure()? Can
+ * either be used? Or do the individual queues on the ports need to be
+ * configured for this using rte_eth_dev_set_vlan_strip_on_queue()?
+ */
 static void
 rx_vlan_strip_set(uint8_t port_id, int on)
 {
@@ -89,7 +97,8 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 	if (port >= rte_eth_dev_count())
 		return -1;
 
-	port_conf.rxmode.hw_vlan_strip = 0;
+	if (USE_HARDWARE_VLAN_STRIPPING)
+		port_conf.rxmode.hw_vlan_strip = 0;
 	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
 	if (retval != 0)
 		return retval;
@@ -123,8 +132,9 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 			addr.addr_bytes[4], addr.addr_bytes[5]);
 
 	rte_eth_promiscuous_enable(port);
-	/* Disable VLAN stripping. */
-	rx_vlan_strip_set(port, 0);
+
+	if (USE_HARDWARE_VLAN_STRIPPING)
+		rx_vlan_strip_set(port, 0);
 
 	return 0;
 }
