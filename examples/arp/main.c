@@ -32,7 +32,9 @@
  */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <inttypes.h>
+#include <rte_arp.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_cycles.h>
@@ -121,8 +123,8 @@ static bool
 port_has_ip(const uint8_t port, const uint32_t ip)
 {
 	uint8_t i;
-	uint8_t num_ip_addrs = num_ip_addrs[port];
-	for (i = 0; i < num_ip_addrs; i++)
+	uint8_t n = num_ip_addrs[port];
+	for (i = 0; i < n; i++)
 		if (ip == ip_addrs[port][i])
 			return true;
 	return false;
@@ -140,30 +142,30 @@ process_arp(uint8_t port, struct ether_hdr *eth_hdr, struct arp_hdr *arp_hdr,
 	 * We only support ARP requests for resolving
 	 * IPv4 addresses to Ethernet addresses.
 	 */
-	if (arp_hdr->arp_hrd != rte_cpu_to_be_16(ARP_HDR_ETHER) ||
+	if (arp_hdr->arp_hrd != rte_cpu_to_be_16(ARP_HRD_ETHER) ||
 	    arp_hdr->arp_pro != rte_cpu_to_be_16(ETHER_TYPE_IPv4) ||
 	    arp_hdr->arp_hln != ETHER_ADDR_LEN ||
 	    arp_hdr->arp_pln != sizeof(uint32_t))
-		goto out;
+		return false;
 
-	switch (rte_be_16_to_cpu(arp_hdr->arp_op)) {
+	switch (rte_be_to_cpu_16(arp_hdr->arp_op)) {
 	case ARP_OP_REQUEST: {
 		/* Check if we have this IP address. */
-		__be32 target_ip = arp_hdr->arp_data.arp_tip;
-		if (!port_has_ip(rte_be_32_to_cpu(target_ip)))
+		uint32_t target_ip_be_32 = arp_hdr->arp_data.arp_tip;
+		if (!port_has_ip(port, rte_be_to_cpu_32(target_ip_be_32)))
 			return false;
 
 		/* Set-up Ethernet header. */
 		ether_addr_copy(&eth_hdr->s_addr, &eth_hdr->d_addr);
-		ether_addr_copy(&port_ether_addr, &eth_hdr->s_addr);
+		ether_addr_copy(port_ether_addr, &eth_hdr->s_addr);
 
 		/* Set-up ARP header. */
 		arp_hdr->arp_op = rte_cpu_to_be_16(ARP_OP_REPLY);
 		ether_addr_copy(&arp_hdr->arp_data.arp_sha,
 				&arp_hdr->arp_data.arp_tha);
 		arp_hdr->arp_data.arp_tip = arp_hdr->arp_data.arp_sip;
-		ether_addr_copy(&port_ether_addr, &arp_hdr->arp_data.arp_sha);
-		arp_hdr->arp_data.arp_sip = target_ip;
+		ether_addr_copy(port_ether_addr, &arp_hdr->arp_data.arp_sha);
+		arp_hdr->arp_data.arp_sip = target_ip_be_32;
 		return true;
 	}
 	case ARP_OP_REPLY:
@@ -173,6 +175,27 @@ process_arp(uint8_t port, struct ether_hdr *eth_hdr, struct arp_hdr *arp_hdr,
 	}
 }
 
+static inline size_t
+get_vlan_offset(struct ether_hdr *eth_hdr, uint16_t *proto)
+{
+	size_t vlan_offset = 0;
+
+	if (rte_cpu_to_be_16(ETHER_TYPE_VLAN) == *proto) {
+		struct vlan_hdr *vlan_hdr = (struct vlan_hdr *)(eth_hdr + 1);
+
+		vlan_offset = sizeof(struct vlan_hdr);
+		*proto = vlan_hdr->eth_proto;
+
+		if (rte_cpu_to_be_16(ETHER_TYPE_VLAN) == *proto) {
+			vlan_hdr = vlan_hdr + 1;
+
+			*proto = vlan_hdr->eth_proto;
+			vlan_offset += sizeof(struct vlan_hdr);
+		}
+	}
+	return vlan_offset;
+}
+
 static void
 process_rx(uint8_t port, struct rte_mbuf **mbufs, const uint16_t nb_rx)
 {
@@ -180,10 +203,9 @@ process_rx(uint8_t port, struct rte_mbuf **mbufs, const uint16_t nb_rx)
 	for (i = 0; i < nb_rx; i++) {
 		struct ether_addr port_ether_addr;
 		struct ether_hdr *eth_hdr;
-		struct arp_hdr *arp_hdr;
 		uint16_t ether_type, offset;
 
-#if DEBUG
+#ifdef DEBUG
 		unsigned int len = rte_pktmbuf_data_len(mbufs[i]);
 		rte_pktmbuf_dump(stdout, mbufs[i], len);
 #endif
@@ -197,15 +219,15 @@ process_rx(uint8_t port, struct rte_mbuf **mbufs, const uint16_t nb_rx)
 		 * for both since it will probably be useful later.
 		 */
 		rte_eth_macaddr_get(port, &port_ether_addr);
-		if (!is_broadcast_ether_addr(eth_hdr->d_addr) &&
-		    !is_same_ether_addr(eth_hdr->d_addr, &port_ether_addr))
+		if (!is_broadcast_ether_addr(&eth_hdr->d_addr) &&
+		    !is_same_ether_addr(&eth_hdr->d_addr, &port_ether_addr))
 			goto free_mbuf;
 
 		/* Calculate offset to skip over VLAN header, if present. */
 		ether_type = eth_hdr->ether_type;
                 offset = get_vlan_offset(eth_hdr, &ether_type);
 
-		switch (rte_be_16_to_cpu(ether_type)) {
+		switch (rte_be_to_cpu_16(ether_type)) {
 		case ETHER_TYPE_ARP: {
 			struct arp_hdr *arp_hdr = (struct arp_hdr *)
 				((char *)(eth_hdr + 1) + offset);
@@ -214,7 +236,7 @@ process_rx(uint8_t port, struct rte_mbuf **mbufs, const uint16_t nb_rx)
 						      &port_ether_addr);
 			if (need_tx) {
 				const uint16_t nb_tx = rte_eth_tx_burst(port,
-						0, mbufs[i], 1);
+						0, &mbufs[i], 1);
 				if (unlikely(nb_tx < 1))
 					goto free_mbuf;
 				continue;
