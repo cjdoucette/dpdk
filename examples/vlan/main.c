@@ -31,15 +31,8 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <stdint.h>
 #include <stdbool.h>
-#include <inttypes.h>
-#include <rte_eal.h>
-#include <rte_ether.h>
 #include <rte_ethdev.h>
-#include <rte_cycles.h>
-#include <rte_lcore.h>
-#include <rte_mbuf.h>
 
 #define RX_RING_SIZE 128
 #define TX_RING_SIZE 512
