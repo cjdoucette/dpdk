@@ -56,9 +56,33 @@ static const struct rte_eth_conf port_conf_default = {
 
 static unsigned nb_ports;
 
-/* TODO: use ring instead. */
+/*
+ *	IP addresses per port
+ */
+
 static uint8_t num_ip_addrs[5];
 static uint32_t ip_addrs[5][5];
+
+static bool
+port_has_ip(const uint8_t port, const uint32_t ip)
+{
+	uint8_t i;
+	uint8_t n = num_ip_addrs[port];
+	for (i = 0; i < n; i++)
+		if (ip == ip_addrs[port][i])
+			return true;
+	return false;
+}
+
+static uint32_t
+port_get_ip(const uint8_t port, uint8_t index)
+{
+	if (num_ip_addrs[port] > index)
+		return ip_addrs[port][index];
+	return 0;
+}
+
+
 
 /*
  * Initialises a given port using global settings and with the rx buffers
@@ -130,7 +154,7 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 
 struct arp_cache_entry {
 	struct ether_addr	ha;
-	uint64_t		ts;
+	time_t			ts;
 };
 
 #ifdef RTE_MACHINE_CPUFLAG_SSE4_2
@@ -225,15 +249,16 @@ static int
 arp_cache_put(const uint32_t ip, const struct ether_addr *ha)
 {
 	struct arp_cache_entry *arp_entry;
-	uint64_t update_time;
+	time_t update_time;
 	int ret;
 
-	update_time = 0;
+	update_time = time(NULL);
 
 	ret = rte_hash_lookup_data(arp_cache, &ip, (void **)&arp_entry);
-	if (ret == 0)
+	if (ret == 0) {
 		arp_entry->ts = update_time;
-	else if (ret == -ENOENT) {
+		arp_entry->stale = false;
+	} else if (ret == -ENOENT) {
 		ret = rte_mempool_sc_get(arp_cache_entry_pool,
 					 (void **)&arp_entry);
 		if (ret == -ENOENT) {
@@ -241,6 +266,7 @@ arp_cache_put(const uint32_t ip, const struct ether_addr *ha)
 			return -1;
 		}
 		arp_entry->ts = update_time;
+		arp_entry->stale = false;
 		ether_addr_copy(ha, &arp_entry->ha);
 		ret = rte_hash_add_key_data(arp_cache, &ip, arp_entry);
 		if (ret != 0) {
@@ -248,29 +274,78 @@ arp_cache_put(const uint32_t ip, const struct ether_addr *ha)
 			rte_mempool_sp_put(arp_cache_entry_pool, arp_entry);
 			return -1;
 		}
-	} else {
-		printf("\nWARNING: invalid parametesr; could not lookup ARP entry\n");
+	} else if (ret == -EINVAL) {
+		printf("\nWARNING: invalid parameters; could not lookup ARP entry\n");
 		return -1;
 	}
 
 	return 0;
 }
 
-static inline const struct ether_addr *
-arp_cache_get(__attribute__((unused)) const uint32_t ip)
+static void
+xmit_arp_req(const uint8_t port, const uint32_t ip, const ether_hdr *ha)
 {
-	return NULL;
+	struct rte_mbuf *created_pkt;
+	struct ether_hdr *eth_hdr;
+	struct arp_hdr *arp_hdr;
+	size_t pkt_size;
+
+	created_pkt = rte_pktmbuf_alloc(mbuf_pool);
+	pkt_size = sizeof(struct ether_hdr) + sizeof(struct arp_hdr);
+	created_pkt->data_len = pkt_size;
+	created_pkt->pkt_len = pkt_size;
+
+	/* Set-up Ethernet header. */
+	eth_hdr = rte_pktmbuf_mtod(created_pkt, struct ether_hdr *);
+	rte_eth_macaddr_get(port, &eth_hdr->s_addr);
+	if (ha == NULL)
+		/* Broadcast. */
+		memset(&eth_hdr->d_addr, 0xFF, ETHER_ADDR_LEN);
+	else
+		/* Unicast to previously-known entry. */
+		ether_addr_copy(ha, &eth_hdr->d_addr);
+	eth_hdr->ether_type = rte_cpu_to_be_16(ETHER_TYPE_ARP);
+
+	/* Set-up ARP header. */
+	arp_hdr = (struct arp_hdr *)((char *)eth_hdr + sizeof(struct ether_hdr));
+	arp_hdr->arp_hrd = rte_cpu_to_be_16(ARP_HRD_ETHER);
+	arp_hdr->arp_pro = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+	arp_hdr->arp_hln = ETHER_ADDR_LEN;
+	arp_hdr->arp_pln = sizeof(uint32_t);
+	arp_hdr->arp_op = rte_cpu_to_be_16(ARP_OP_REQUEST);
+	rte_eth_macaddr_get(port, &arp_hdr->arp_data.arp_sha);
+	arp_hdr->arp_data.arp_sip = port_get_ip(port, 0);
+	memset(&arp_hdr->arp_data.arp_tha, 0, ETHER_ADDR_LEN);
+	arp_hdr->arp_data.arp_tip = ip;
+
+	rte_eth_tx_burst(port, 0, &created_pkt, 1);
 }
 
-static bool
-port_has_ip(const uint8_t port, const uint32_t ip)
+static inline const struct ether_addr *
+arp_cache_get(const uint32_t ip)
 {
-	uint8_t i;
-	uint8_t n = num_ip_addrs[port];
-	for (i = 0; i < n; i++)
-		if (ip == ip_addrs[port][i])
-			return true;
-	return false;
+	struct arp_cache_entry *arp_entry;
+	int ret = rte_hash_lookup_data(arp_cache, &ip, (void **)&arp_entry);
+	if (ret == 0) {
+		time_t now = time(NULL);
+		if (now - arp_entry->ts > ARP_CACHE_TIMEOUT) {
+			arp_entry->stale = true;
+			/* TODO: let caller know they should re-try later. */
+			xmit_arp_req(port, ip, &arp_entry->ha);
+			return NULL;
+		}
+		return &arp_entry->ha;
+	} else if (ret == -ENOENT) {
+		/* TODO: let caller know they should re-try later. */
+		xmit_arp_req(port, ip, NULL);
+		return NULL;
+	} else if (ret == -EINVAL) {
+		printf("\nWARNING: invalid parameters; could not lookup ARP entry\n");
+		return NULL;
+	}
+
+	RTE_ASSERT(false);
+	return NULL;
 }
 
 /*
