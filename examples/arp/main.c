@@ -54,7 +54,11 @@ static const struct rte_eth_conf port_conf_default = {
 	.rxmode = { .max_rx_pkt_len = ETHER_MAX_LEN, },
 };
 
+static struct rte_mempool *mbuf_pool;
 static unsigned nb_ports;
+
+static void xmit_arp_req(const uint8_t port, const uint32_t ip,
+			 const struct ether_addr *ha);
 
 /*
  *	IP addresses per port
@@ -82,79 +86,14 @@ port_get_ip(const uint8_t port, uint8_t index)
 	return 0;
 }
 
-
-
-/*
- * Initialises a given port using global settings and with the rx buffers
- * coming from the mbuf_pool passed as parameter
- */
-static inline int
-port_init(uint8_t port, struct rte_mempool *mbuf_pool)
-{
-	struct rte_eth_conf port_conf = port_conf_default;
-	const uint16_t rx_rings = 1, tx_rings = 1;
-	int retval;
-	uint16_t q;
-
-	if (port >= rte_eth_dev_count())
-		return -1;
-
-	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
-	if (retval != 0)
-		return retval;
-
-	for (q = 0; q < rx_rings; q++) {
-		retval = rte_eth_rx_queue_setup(port, q, RX_RING_SIZE,
-				rte_eth_dev_socket_id(port), NULL, mbuf_pool);
-		if (retval < 0)
-			return retval;
-	}
-
-	for (q = 0; q < tx_rings; q++) {
-		retval = rte_eth_tx_queue_setup(port, q, TX_RING_SIZE,
-				rte_eth_dev_socket_id(port), NULL);
-		if (retval < 0)
-			return retval;
-	}
-
-	retval  = rte_eth_dev_start(port);
-	if (retval < 0)
-		return retval;
-
-	struct ether_addr addr;
-
-	rte_eth_macaddr_get(port, &addr);
-	printf("Port %u MAC: %02"PRIx8" %02"PRIx8" %02"PRIx8
-			" %02"PRIx8" %02"PRIx8" %02"PRIx8"\n",
-			(unsigned)port,
-			addr.addr_bytes[0], addr.addr_bytes[1],
-			addr.addr_bytes[2], addr.addr_bytes[3],
-			addr.addr_bytes[4], addr.addr_bytes[5]);
-
-	rte_eth_promiscuous_enable(port);
-
-	/* Set IP address(es) for this port. */
-	if (port == 0) {
-		/* 192.168.56.10 */
-		ip_addrs[port][0] = 3232249866;
-		num_ip_addrs[port] = 1;
-	} else if (port == 1) {
-		/* 192.168.57.10 */
-		ip_addrs[port][0] = 3232250122;
-		num_ip_addrs[port] = 1;
-	}
-	return 0;
-}
-
 /*
  *	ARP cache
  */
 
-/* TODO: add this to config file. */
-
 struct arp_cache_entry {
 	struct ether_addr	ha;
 	time_t			ts;
+	bool			stale;
 };
 
 #ifdef RTE_MACHINE_CPUFLAG_SSE4_2
@@ -165,6 +104,7 @@ struct arp_cache_entry {
 #define DEFAULT_HASH_FUNC       rte_jhash
 #endif
 
+#define ARP_CACHE_TIMEOUT 7200
 #define ARP_CACHE_ENTRIES 1024
 #define ARP_MEMPOOL_CACHE_SIZE 73
 static struct rte_hash_parameters arp_cache_params = {
@@ -282,8 +222,97 @@ arp_cache_put(const uint32_t ip, const struct ether_addr *ha)
 	return 0;
 }
 
+static inline const struct ether_addr *
+arp_cache_get(const uint8_t port, const uint32_t ip)
+{
+	struct arp_cache_entry *arp_entry;
+	int ret = rte_hash_lookup_data(arp_cache, &ip, (void **)&arp_entry);
+	if (ret == 0) {
+		time_t now = time(NULL);
+		if (now - arp_entry->ts > ARP_CACHE_TIMEOUT) {
+			arp_entry->stale = true;
+			/* TODO: let caller know they should re-try later. */
+			xmit_arp_req(port, ip, &arp_entry->ha);
+			return NULL;
+		}
+		return &arp_entry->ha;
+	} else if (ret == -ENOENT) {
+		/* TODO: let caller know they should re-try later. */
+		xmit_arp_req(port, ip, NULL);
+		return NULL;
+	} else if (ret == -EINVAL) {
+		printf("\nWARNING: invalid parameters; could not lookup ARP entry\n");
+		return NULL;
+	}
+
+	RTE_ASSERT(false);
+	return NULL;
+}
+
+/*
+ * Initialises a given port using global settings and with the rx buffers
+ * coming from the mbuf_pool passed as parameter
+ */
+static inline int
+port_init(uint8_t port)
+{
+	struct rte_eth_conf port_conf = port_conf_default;
+	const uint16_t rx_rings = 1, tx_rings = 1;
+	int retval;
+	uint16_t q;
+
+	if (port >= rte_eth_dev_count())
+		return -1;
+
+	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
+	if (retval != 0)
+		return retval;
+
+	for (q = 0; q < rx_rings; q++) {
+		retval = rte_eth_rx_queue_setup(port, q, RX_RING_SIZE,
+				rte_eth_dev_socket_id(port), NULL, mbuf_pool);
+		if (retval < 0)
+			return retval;
+	}
+
+	for (q = 0; q < tx_rings; q++) {
+		retval = rte_eth_tx_queue_setup(port, q, TX_RING_SIZE,
+				rte_eth_dev_socket_id(port), NULL);
+		if (retval < 0)
+			return retval;
+	}
+
+	retval  = rte_eth_dev_start(port);
+	if (retval < 0)
+		return retval;
+
+	struct ether_addr addr;
+
+	rte_eth_macaddr_get(port, &addr);
+	printf("Port %u MAC: %02"PRIx8" %02"PRIx8" %02"PRIx8
+			" %02"PRIx8" %02"PRIx8" %02"PRIx8"\n",
+			(unsigned)port,
+			addr.addr_bytes[0], addr.addr_bytes[1],
+			addr.addr_bytes[2], addr.addr_bytes[3],
+			addr.addr_bytes[4], addr.addr_bytes[5]);
+
+	rte_eth_promiscuous_enable(port);
+
+	/* Set IP address(es) for this port. */
+	if (port == 0) {
+		/* 192.168.56.10 */
+		ip_addrs[port][0] = 3232249866;
+		num_ip_addrs[port] = 1;
+	} else if (port == 1) {
+		/* 192.168.57.10 */
+		ip_addrs[port][0] = 3232250122;
+		num_ip_addrs[port] = 1;
+	}
+	return 0;
+}
+
 static void
-xmit_arp_req(const uint8_t port, const uint32_t ip, const ether_hdr *ha)
+xmit_arp_req(const uint8_t port, const uint32_t ip, const struct ether_addr *ha)
 {
 	struct rte_mbuf *created_pkt;
 	struct ether_hdr *eth_hdr;
@@ -319,33 +348,6 @@ xmit_arp_req(const uint8_t port, const uint32_t ip, const ether_hdr *ha)
 	arp_hdr->arp_data.arp_tip = ip;
 
 	rte_eth_tx_burst(port, 0, &created_pkt, 1);
-}
-
-static inline const struct ether_addr *
-arp_cache_get(const uint32_t ip)
-{
-	struct arp_cache_entry *arp_entry;
-	int ret = rte_hash_lookup_data(arp_cache, &ip, (void **)&arp_entry);
-	if (ret == 0) {
-		time_t now = time(NULL);
-		if (now - arp_entry->ts > ARP_CACHE_TIMEOUT) {
-			arp_entry->stale = true;
-			/* TODO: let caller know they should re-try later. */
-			xmit_arp_req(port, ip, &arp_entry->ha);
-			return NULL;
-		}
-		return &arp_entry->ha;
-	} else if (ret == -ENOENT) {
-		/* TODO: let caller know they should re-try later. */
-		xmit_arp_req(port, ip, NULL);
-		return NULL;
-	} else if (ret == -EINVAL) {
-		printf("\nWARNING: invalid parameters; could not lookup ARP entry\n");
-		return NULL;
-	}
-
-	RTE_ASSERT(false);
-	return NULL;
 }
 
 /*
@@ -510,7 +512,6 @@ lcore_main(void)
 int
 main(int argc, char *argv[])
 {
-	struct rte_mempool *mbuf_pool;
 	uint8_t portid;
 
 	/* init EAL */
@@ -533,7 +534,7 @@ main(int argc, char *argv[])
 
 	/* initialize all ports */
 	for (portid = 0; portid < nb_ports; portid++)
-		if (port_init(portid, mbuf_pool) != 0)
+		if (port_init(portid) != 0)
 			rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu8"\n",
 					portid);
 
