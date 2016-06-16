@@ -43,6 +43,7 @@
 #include <rte_lcore.h>
 #include <rte_mbuf.h>
 #include <rte_hash.h>
+#include <rte_timer.h>
 
 #define RX_RING_SIZE 128
 #define TX_RING_SIZE 512
@@ -189,9 +190,12 @@ xmit_arp_req(const uint8_t port, const uint32_t ip, const struct ether_addr *ha)
  *	ARP cache
  */
 
+static int32_t arp_cache_del(const uint32_t ip);
+
 struct arp_cache_entry {
 	struct ether_addr	ha;
 	time_t			ts;
+	uint8_t			port;
 	bool			stale;
 };
 
@@ -214,6 +218,9 @@ struct arp_cache_req {
 #define ARP_CACHE_MEMPOOL_SIZE	73
 #define ARP_CACHE_RING_SIZE	256
 #define ARP_CACHE_REQS_BULK	32
+#define ARP_REQ_DEFAULT_PORT	1
+
+#define TIMER_RESOLUTION_CYCLES 20000000ULL /* around 10ms at 2 Ghz */
 
 static struct rte_hash_parameters arp_cache_params = {
 	.name = "arp_cache",
@@ -230,13 +237,49 @@ static struct rte_hash *arp_cache = NULL;
 static struct rte_mempool *arp_cache_entry_pool;
 static struct rte_mempool *arp_cache_req_pool;
 static struct rte_ring *arp_cache_ring;
+static struct rte_timer arp_cache_timer;
 
 static struct arp_cache_entry *arp_cache_data[ARP_CACHE_ENTRIES]
 	__rte_cache_aligned;
 
+static void
+arp_cache_scan(__attribute__((unused)) struct rte_timer *tim,
+	       __attribute__((unused)) void *arg)
+{
+	uint32_t iter = 0;
+	int32_t index;
+	const void *key;
+	void *data;
+	time_t now;
+
+	if (arp_cache == NULL) {
+		printf("ARP cache not instantiated\n");
+		return;
+	}
+
+	now = time(NULL);
+	index = rte_hash_iterate(arp_cache, &key, &data, &iter);
+	while (index >= 0) {
+		uint32_t ip = *(const uint32_t *)key;
+		struct arp_cache_entry *arp_entry = arp_cache_data[index];
+
+		if (arp_entry->stale) {
+			arp_cache_del(ip);
+		} else if (now - arp_entry->ts > ARP_CACHE_TIMEOUT) {
+			arp_entry->stale = true;
+			xmit_arp_req(arp_entry->port, ip, &arp_entry->ha);
+		}
+
+		index = rte_hash_iterate(arp_cache, &key, &data, &iter);
+	}
+}
+
 static int
 arp_cache_init(void)
 {
+	uint64_t hz;
+	unsigned int lcore_id;
+
 	arp_cache_params.socket_id = rte_socket_id();
 	arp_cache = rte_hash_create(&arp_cache_params);
 	if (arp_cache == NULL)
@@ -273,6 +316,18 @@ arp_cache_init(void)
 	if (arp_cache_ring == NULL)
 		goto entry;
 
+	/* init RTE timer library */
+	rte_timer_subsystem_init();
+
+	/* init timer structures */
+	rte_timer_init(&arp_cache_timer);
+
+	/* load timer0, every second, on master lcore, reloaded automatically */
+	hz = rte_get_timer_hz();
+	lcore_id = rte_get_next_lcore(0, 1, 0);
+	rte_timer_reset(&arp_cache_timer, 10 * hz, PERIODICAL, lcore_id,
+		arp_cache_scan, NULL);
+
 	return 0;
 
 entry:
@@ -285,7 +340,7 @@ hash:
 }
 
 static int32_t
-arp_cache_get(const uint8_t port, const uint32_t ip, struct ether_addr **ha)
+arp_cache_get(const uint32_t ip, struct ether_addr **ha)
 {
 	int32_t ret;
 
@@ -297,20 +352,17 @@ arp_cache_get(const uint8_t port, const uint32_t ip, struct ether_addr **ha)
 	ret = rte_hash_lookup(arp_cache, &ip);
 	if (ret == -ENOENT) {
 		*ha = NULL;
-		xmit_arp_req(port, ip, NULL);
+		xmit_arp_req(ARP_REQ_DEFAULT_PORT, ip, NULL);
 	} else if (ret == -EINVAL) {
 		*ha = NULL;
 		printf("Invalid params; could not lookup ARP entry\n");
 	} else {
 		struct arp_cache_entry *arp_entry = arp_cache_data[ret];
-		time_t now = time(NULL);
 		ether_addr_copy(&arp_entry->ha, *ha);
-		if (now - arp_entry->ts > ARP_CACHE_TIMEOUT) {
-			arp_entry->stale = true;
-			xmit_arp_req(port, ip, &arp_entry->ha);
-			return -ESTALE;
-		}
-		ret = 0;
+		if (arp_entry->stale)
+			ret = -ESTALE;
+		else
+			ret = 0;
 	}
 	return ret;
 }
@@ -320,8 +372,8 @@ arp_cache_dump(void)
 {
 	uint32_t iter = 0;
 	int32_t index;
-	const void *next_key;
-	void *next_data;
+	const void *key;
+	void *data;
 
 	if (arp_cache == NULL) {
 		printf("ARP cache not instantiated\n");
@@ -329,13 +381,13 @@ arp_cache_dump(void)
 	}
 
 
-	index = rte_hash_iterate(arp_cache, &next_key, &next_data, &iter);
+	index = rte_hash_iterate(arp_cache, &key, &data, &iter);
 	while (index >= 0) {
 		uint32_t ip;
 		struct arp_cache_entry *arp_entry;
 		char ip_str[INET_ADDRSTRLEN];
 
-		ip = *(const uint32_t *)next_key;
+		ip = *(const uint32_t *)key;
 		arp_entry = arp_cache_data[index];
 
 		if (inet_ntop(AF_INET, &ip, ip_str, INET_ADDRSTRLEN) == NULL) {
@@ -354,12 +406,12 @@ arp_cache_dump(void)
 			arp_entry->ha.addr_bytes[4],
 			arp_entry->ha.addr_bytes[5]);
 
-		index = rte_hash_iterate(arp_cache, &next_key, &next_data, &iter);
+		index = rte_hash_iterate(arp_cache, &key, &data, &iter);
 	}
 }
 
 static int32_t
-arp_cache_add(const uint32_t ip, const struct ether_addr *ha)
+arp_cache_add(const uint32_t ip, const struct ether_addr *ha, uint8_t port)
 {
 	struct arp_cache_entry *arp_entry;
 	struct arp_cache_req *req;
@@ -374,7 +426,9 @@ arp_cache_add(const uint32_t ip, const struct ether_addr *ha)
 	update_time = time(NULL);
 	ret = rte_hash_lookup_data(arp_cache, &ip, (void **)&arp_entry);
 	if (ret == 0) {
+		ether_addr_copy(ha, &arp_entry->ha);
 		arp_entry->ts = update_time;
+		arp_entry->port = port;
 		arp_entry->stale = false;
 	} else if (ret == -ENOENT) {
 		ret = rte_mempool_mc_get(arp_cache_req_pool,
@@ -393,6 +447,7 @@ arp_cache_add(const uint32_t ip, const struct ether_addr *ha)
 		}
 		ether_addr_copy(ha, &arp_entry->ha);
 		arp_entry->ts = update_time;
+		arp_entry->port = port;
 		arp_entry->stale = false;
 
 		req->ip = ip;
@@ -434,14 +489,23 @@ static int
 arp_cache_writer(__attribute__((unused)) void *arg)
 {
 	struct arp_cache_req *reqs[ARP_CACHE_REQS_BULK];
+	uint64_t prev_tsc = 0, cur_tsc, diff_tsc;
 
 	while (1) {
 		unsigned int count = rte_ring_dequeue_burst(arp_cache_ring,
 			(void **)reqs, ARP_CACHE_REQS_BULK);
 		unsigned int i;
 
-		if (likely(count == 0))
+		if (likely(count == 0)) {
+			/* Check to see if timer expired. */
+			cur_tsc = rte_rdtsc();
+			diff_tsc = cur_tsc - prev_tsc;
+			if (diff_tsc > TIMER_RESOLUTION_CYCLES) {
+				rte_timer_manage();
+				prev_tsc = cur_tsc;
+			}
 			continue;
+		}
 
 		for (i = 0; i < count; i++) {
 			int32_t ret;
@@ -502,7 +566,8 @@ process_arp(uint8_t port, struct ether_hdr *eth_hdr, struct arp_hdr *arp_hdr,
 		return false;
 
 	/* Update cache with source resolution, regardless of operation. */
-	arp_cache_add(arp_hdr->arp_data.arp_sip, &arp_hdr->arp_data.arp_sha);
+	arp_cache_add(arp_hdr->arp_data.arp_sip, &arp_hdr->arp_data.arp_sha,
+		      port);
 
 	switch (rte_be_to_cpu_16(arp_hdr->arp_op)) {
 	case ARP_OP_REQUEST:
@@ -675,15 +740,15 @@ arp_cache_test(void)
 	}
 	memset(&ha3, 0x03, ETHER_ADDR_LEN);
 
-	arp_cache_add(ip1, &ha1);
-	arp_cache_add(ip2, &ha2);
+	arp_cache_add(ip1, &ha1, 0);
+	arp_cache_add(ip2, &ha2, 0);
 	sleep(1);
 
 	printf("ARP cache should have two entries:\n");
 	arp_cache_dump();
 	ha_p = &retrieved_ha;
 
-	if (arp_cache_get(0, ip1, &ha_p) != 0) {
+	if (arp_cache_get(ip1, &ha_p) != 0) {
 		printf("get() 1 didn't work\n");
 		return;
 	}
@@ -693,7 +758,7 @@ arp_cache_test(void)
 		return;
 	}
 
-	if (arp_cache_get(0, ip2, &ha_p) != 0) {
+	if (arp_cache_get(ip2, &ha_p) != 0) {
 		printf("get() 2 didn't work\n");
 		return;
 	}
@@ -707,8 +772,8 @@ arp_cache_test(void)
 	printf("Now delete the first entry:\n");
 	arp_cache_dump();
 
-	arp_cache_add(ip3, &ha3);
-	arp_cache_add(ip3, &ha3);
+	arp_cache_add(ip3, &ha3, 0);
+	arp_cache_add(ip3, &ha3, 0);
 	sleep(1);
 
 	printf("Now add a third entry twice:\n");
