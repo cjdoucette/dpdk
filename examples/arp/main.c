@@ -34,6 +34,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <inttypes.h>
+#include <unistd.h>
 #include <arpa/inet.h>
 #include <rte_arp.h>
 #include <rte_ethdev.h>
@@ -49,9 +50,6 @@
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 250
 #define BURST_SIZE 32
-
-#define EXAMPLE_ARP_DEBUG 0
-#define DUMP_AFTER_ADD 1
 
 static const struct rte_eth_conf port_conf_default = {
 	.rxmode = { .max_rx_pkt_len = ETHER_MAX_LEN, },
@@ -197,6 +195,12 @@ struct arp_cache_entry {
 	bool			stale;
 };
 
+struct arp_cache_req {
+	uint32_t		ip;
+	struct arp_cache_entry	*entry;
+	bool			to_add;
+};
+
 #ifdef RTE_MACHINE_CPUFLAG_SSE4_2
 #include <rte_hash_crc.h>
 #define DEFAULT_HASH_FUNC       rte_hash_crc
@@ -205,9 +209,12 @@ struct arp_cache_entry {
 #define DEFAULT_HASH_FUNC       rte_jhash
 #endif
 
-#define ARP_CACHE_TIMEOUT 7200
-#define ARP_CACHE_ENTRIES 1024
-#define ARP_MEMPOOL_CACHE_SIZE 73
+#define ARP_CACHE_TIMEOUT	7200
+#define ARP_CACHE_ENTRIES	1024
+#define ARP_CACHE_MEMPOOL_SIZE	73
+#define ARP_CACHE_RING_SIZE	256
+#define ARP_CACHE_REQS_BULK	32
+
 static struct rte_hash_parameters arp_cache_params = {
 	.name = "arp_cache",
 	.entries = ARP_CACHE_ENTRIES,
@@ -221,94 +228,64 @@ static struct rte_hash_parameters arp_cache_params = {
 
 static struct rte_hash *arp_cache = NULL;
 static struct rte_mempool *arp_cache_entry_pool;
+static struct rte_mempool *arp_cache_req_pool;
+static struct rte_ring *arp_cache_ring;
 
-static void
-arp_cache_entry_init(struct rte_mempool *mp,
-		     __attribute__((unused)) void *opaque_arg,
-		     void *_m,
-		     __attribute__((unused)) unsigned i)
+static struct arp_cache_entry *arp_cache_data[ARP_CACHE_ENTRIES]
+	__rte_cache_aligned;
+
+static int
+arp_cache_init(void)
 {
-	struct rte_mbuf *m = _m;
-	uint32_t arp_cache_entry_size, buf_len, priv_size;
+	arp_cache_params.socket_id = rte_socket_id();
+	arp_cache = rte_hash_create(&arp_cache_params);
+	if (arp_cache == NULL)
+		return -1;
 
-	priv_size = rte_pktmbuf_priv_size(mp);
-	arp_cache_entry_size = sizeof(struct arp_cache_entry);
-	buf_len = rte_pktmbuf_data_room_size(mp);
+	/*
+	 * Size of mempool should be n = (power of 2) - 1, and the size
+	 * of the mempool cache should be c such that n % c == 0.
+	 */
+	arp_cache_req_pool = rte_mempool_create("arp_cache_req_pool",
+		255, sizeof(struct arp_cache_req),
+		51, 0,
+		NULL, NULL,
+		NULL, NULL,
+		rte_socket_id(), 0);
+	if (arp_cache_req_pool == NULL)
+		goto hash;
 
-	RTE_ASSERT(priv_size == 0);
-	RTE_ASSERT(mp->elt_size >= arp_cache_entry_size);
-	(void)arp_cache_entry_size;
+	arp_cache_entry_pool = rte_mempool_create("arp_cache_entry_pool",
+		ARP_CACHE_ENTRIES / 2 - 1, sizeof(struct arp_cache_entry),
+		ARP_CACHE_MEMPOOL_SIZE, 0,
+		NULL, NULL,
+		NULL, NULL,
+		rte_socket_id(), 0);
+	if (arp_cache_entry_pool == NULL)
+		goto req;
 
-	/* start of buffer is after mbuf structure and priv data */
-	m->priv_size = priv_size;
-	m->buf_addr = (char *)m;
-	m->buf_physaddr = rte_mempool_virt2phy(mp, m);
-	m->buf_len = (uint16_t)buf_len;
-
-	/* No need for room between start of buffer and data. */
-	m->data_off = 0;
-
-	/* Initialize some constant fields. */
-	m->pool = mp;
-	m->nb_segs = 1;
-	m->port = 0xff;
-}
-
-static void arp_cache_dump(void);
-
-/* Not multi-thread safe. */
-static int32_t
-arp_cache_add(const uint32_t ip, const struct ether_addr *ha)
-{
-	struct arp_cache_entry *arp_entry;
-	time_t update_time;
-	int ret;
-
-	if (arp_cache == NULL) {
-		printf("ARP cache not instantiated\n");
-		return -EINVAL;
-	}
-
-	update_time = time(NULL);
-	ret = rte_hash_lookup_data(arp_cache, &ip, (void **)&arp_entry);
-	if (ret == 0) {
-		arp_entry->ts = update_time;
-		arp_entry->stale = false;
-	} else if (ret == -ENOENT) {
-		ret = rte_mempool_sc_get(arp_cache_entry_pool,
-					 (void **)&arp_entry);
-		if (ret == -ENOENT) {
-			printf("No memory in cache, ARP entry not added\n");
-			return ret;
-		}
-		arp_entry->ts = update_time;
-		arp_entry->stale = false;
-		ether_addr_copy(ha, &arp_entry->ha);
-		ret = rte_hash_add_key_data(arp_cache, &ip, arp_entry);
-		if (ret == -EINVAL) {
-			printf("Invalid parameters, ARP entry not added\n");
-			rte_mempool_sp_put(arp_cache_entry_pool, arp_entry);
-			return ret;
-		} else if (ret == -ENOSPC) {
-			printf("No space in table, ARP entry not added\n");
-			rte_mempool_sp_put(arp_cache_entry_pool, arp_entry);
-			return ret;
-		}
-	} else if (ret == -EINVAL) {
-		printf("Invalid parameters, ARP entry not added\n");
-		return ret;
-	}
-
-#if DUMP_AFTER_ADD
-	arp_cache_dump();
-#endif
+	/* These rings could be collapsed into one ring, but then each
+	 * individual entry would need a flag for whether it's to be
+	 * added or deleted, which creates a race condition.
+	 */
+	arp_cache_ring = rte_ring_create("arp_cache_ring",
+		ARP_CACHE_RING_SIZE, rte_socket_id(), RING_F_SC_DEQ);
+	if (arp_cache_ring == NULL)
+		goto entry;
 
 	return 0;
+
+entry:
+	rte_mempool_free(arp_cache_entry_pool);
+req:
+	rte_mempool_free(arp_cache_req_pool);
+hash:
+	rte_hash_free(arp_cache);
+	return -1;
 }
 
-/* Not multi-thread safe. */
 static int32_t
-arp_cache_del(const uint32_t ip)
+arp_cache_get(const uint8_t port, const uint32_t ip, struct ether_addr **ha)
 {
 	int32_t ret;
 
@@ -317,43 +294,23 @@ arp_cache_del(const uint32_t ip)
 		return -EINVAL;
 	}
 
-	ret = rte_hash_del_key(arp_cache, &ip);
+	ret = rte_hash_lookup(arp_cache, &ip);
 	if (ret == -ENOENT) {
-		printf("No entry found, ARP entry not deleted\n");
-		return ret;
+		*ha = NULL;
+		xmit_arp_req(port, ip, NULL);
 	} else if (ret == -EINVAL) {
-		printf("Invalid parameters, ARP entry not deleted\n");
-		return ret;
-	}
-	return 0;
-}
-
-static int32_t
-arp_cache_get(const uint8_t port, const uint32_t ip, struct ether_addr **ha)
-{
-	struct arp_cache_entry *arp_entry;
-	int ret;
-
-	if (arp_cache == NULL) {
-		printf("ARP cache not instantiated\n");
-		return -EINVAL;
-	}
-
-	ret = rte_hash_lookup_data(arp_cache, &ip, (void **)&arp_entry);
-	if (ret == 0) {
+		*ha = NULL;
+		printf("Invalid params; could not lookup ARP entry\n");
+	} else {
+		struct arp_cache_entry *arp_entry = arp_cache_data[ret];
 		time_t now = time(NULL);
-		ether_addr_copy(*ha, &arp_entry->ha);
+		ether_addr_copy(&arp_entry->ha, *ha);
 		if (now - arp_entry->ts > ARP_CACHE_TIMEOUT) {
 			arp_entry->stale = true;
 			xmit_arp_req(port, ip, &arp_entry->ha);
 			return -ESTALE;
 		}
-	} else if (ret == -ENOENT) {
-		*ha = NULL;
-		xmit_arp_req(port, ip, NULL);
-	} else if (ret == -EINVAL) {
-		*ha = NULL;
-		printf("Invalid parameters; could not lookup ARP entry\n");
+		ret = 0;
 	}
 	return ret;
 }
@@ -362,6 +319,7 @@ static void
 arp_cache_dump(void)
 {
 	uint32_t iter = 0;
+	int32_t index;
 	const void *next_key;
 	void *next_data;
 
@@ -370,13 +328,15 @@ arp_cache_dump(void)
 		return;
 	}
 
-	while (rte_hash_iterate(arp_cache, &next_key, &next_data, &iter) >= 0) {
+
+	index = rte_hash_iterate(arp_cache, &next_key, &next_data, &iter);
+	while (index >= 0) {
 		uint32_t ip;
 		struct arp_cache_entry *arp_entry;
 		char ip_str[INET_ADDRSTRLEN];
 
 		ip = *(const uint32_t *)next_key;
-		arp_entry = (struct arp_cache_entry *)next_data;
+		arp_entry = arp_cache_data[index];
 
 		if (inet_ntop(AF_INET, &ip, ip_str, INET_ADDRSTRLEN) == NULL) {
 			perror("inet_ntop");
@@ -393,41 +353,129 @@ arp_cache_dump(void)
 			arp_entry->ha.addr_bytes[3],
 			arp_entry->ha.addr_bytes[4],
 			arp_entry->ha.addr_bytes[5]);
+
+		index = rte_hash_iterate(arp_cache, &next_key, &next_data, &iter);
 	}
 }
 
-static int
-arp_cache_init(void)
+static int32_t
+arp_cache_add(const uint32_t ip, const struct ether_addr *ha)
 {
-	arp_cache_params.socket_id = rte_socket_id();
-	arp_cache = rte_hash_create(&arp_cache_params);
-	if (arp_cache == NULL)
-		return -1;
+	struct arp_cache_entry *arp_entry;
+	struct arp_cache_req *req;
+	time_t update_time;
+	int ret;
 
-	/*
-	 * Size of mempool should be n = (power of 2) - 1, and the size
-	 * of the mempool cache should be c such that n % c == 0.
-	 */
-	arp_cache_entry_pool = rte_mempool_create("arp_pool",
-		ARP_CACHE_ENTRIES / 2 - 1, sizeof(struct arp_cache_entry),
-		ARP_MEMPOOL_CACHE_SIZE, 0,
-		NULL, NULL,
-		arp_cache_entry_init, NULL,
-		rte_socket_id(), 0);
-	if (arp_cache_entry_pool == NULL) {
-		rte_hash_free(arp_cache);
-		return -1;
+	if (arp_cache == NULL) {
+		printf("ARP cache not instantiated\n");
+		return -EINVAL;
 	}
 
-	/*
-	 * TODO: pre-load cache with entries from config file.
-	 * See examples/ipv4_multicast/main.c for an example.
-	 */
+	update_time = time(NULL);
+	ret = rte_hash_lookup_data(arp_cache, &ip, (void **)&arp_entry);
+	if (ret == 0) {
+		arp_entry->ts = update_time;
+		arp_entry->stale = false;
+	} else if (ret == -ENOENT) {
+		ret = rte_mempool_mc_get(arp_cache_req_pool,
+					 (void **)&req);
+		if (ret == -ENOENT) {
+			printf("No memory for request, ARP entry not added\n");
+			return ret;
+		}
+
+		ret = rte_mempool_mc_get(arp_cache_entry_pool,
+					 (void **)&arp_entry);
+		if (ret == -ENOENT) {
+			rte_mempool_mp_put(arp_cache_req_pool, req);
+			printf("No memory in cache, ARP entry not added\n");
+			return ret;
+		}
+		ether_addr_copy(ha, &arp_entry->ha);
+		arp_entry->ts = update_time;
+		arp_entry->stale = false;
+
+		req->ip = ip;
+		req->entry = arp_entry;
+		req->to_add = true;
+		rte_ring_enqueue(arp_cache_ring, req);
+	} else if (ret == -EINVAL) {
+		printf("Invalid parameters, ARP entry not added\n");
+		return ret;
+	}
 
 	return 0;
 }
 
+static int32_t
+arp_cache_del(const uint32_t ip)
+{
+	struct arp_cache_req *req;
+	int32_t ret;
 
+	if (arp_cache == NULL) {
+		printf("ARP cache not instantiated\n");
+		return -EINVAL;
+	}
+
+	ret = rte_mempool_mc_get(arp_cache_req_pool, (void **)&req);
+	if (ret == -ENOENT) {
+		printf("No memory for request, ARP entry not deleted\n");
+		return ret;
+	}
+	req->ip = ip;
+	req->entry = NULL;
+	req->to_add = false;
+	rte_ring_enqueue(arp_cache_ring, req);
+	return 0;
+}
+
+static int
+arp_cache_writer(__attribute__((unused)) void *arg)
+{
+	struct arp_cache_req *reqs[ARP_CACHE_REQS_BULK];
+
+	while (1) {
+		unsigned int count = rte_ring_dequeue_burst(arp_cache_ring,
+			(void **)reqs, ARP_CACHE_REQS_BULK);
+		unsigned int i;
+
+		if (likely(count == 0))
+			continue;
+
+		for (i = 0; i < count; i++) {
+			int32_t ret;
+			if (reqs[i]->to_add) {
+				ret = rte_hash_add_key(arp_cache, &reqs[i]->ip);
+				if (ret == -EINVAL) {
+					printf("Invalid params, ARP entry not added\n");
+					rte_mempool_sp_put(arp_cache_entry_pool,
+						reqs[i]->entry);
+				} else if (ret == -ENOSPC) {
+					printf("No space in cache, ARP entry not added\n");
+					rte_mempool_sp_put(arp_cache_entry_pool,
+						reqs[i]->entry);
+				} else {
+					arp_cache_data[ret] = reqs[i]->entry;
+				}
+			} else {
+				ret = rte_hash_del_key(arp_cache,
+					&reqs[i]->ip);
+				if (ret == -ENOENT)
+					printf("No entry found, ARP entry not deleted\n");
+				else if (ret == -EINVAL)
+					printf("Invalid params, ARP entry not deleted\n");
+				else
+					rte_mempool_sp_put(arp_cache_entry_pool,
+						arp_cache_data[ret]);
+			}
+
+			rte_mempool_mp_put(arp_cache_req_pool, reqs[i]);
+		}
+	}
+
+	return 0;
+}
 
 /*
  * Returns true if the packet should be transmitted, false if it should
@@ -629,35 +677,44 @@ arp_cache_test(void)
 
 	arp_cache_add(ip1, &ha1);
 	arp_cache_add(ip2, &ha2);
+	sleep(1);
 
 	printf("ARP cache should have two entries:\n");
 	arp_cache_dump();
-
 	ha_p = &retrieved_ha;
 
-	if (arp_cache_get(0, ip1, &ha_p) != 0)
-		RTE_ASSERT(false);
-	if (!is_same_ether_addr(ha_p, &ha1))
-		RTE_ASSERT(false);
+	if (arp_cache_get(0, ip1, &ha_p) != 0) {
+		printf("get() 1 didn't work\n");
+		return;
+	}
 
-	if (arp_cache_get(0, ip2, &ha_p) != 0)
-		RTE_ASSERT(false);
-	if (!is_same_ether_addr(ha_p, &ha2))
-		RTE_ASSERT(false);
+	if (!is_same_ether_addr(ha_p, &ha1)) {
+		printf("Ethernet address not equal for ha1\n");
+		return;
+	}
+
+	if (arp_cache_get(0, ip2, &ha_p) != 0) {
+		printf("get() 2 didn't work\n");
+		return;
+	}
+	if (!is_same_ether_addr(ha_p, &ha2)) {
+		printf("Ethernet address not equal for ha1\n");
+		return;
+	}
 
 	arp_cache_del(ip1);
-
+	sleep(1);
 	printf("Now delete the first entry:\n");
 	arp_cache_dump();
 
 	arp_cache_add(ip3, &ha3);
 	arp_cache_add(ip3, &ha3);
+	sleep(1);
 
 	printf("Now add a third entry twice:\n");
 	arp_cache_dump();
 }
 
-/* Main function, does initialisation and calls the per-lcore functions */
 int
 main(int argc, char *argv[])
 {
@@ -672,8 +729,6 @@ main(int argc, char *argv[])
 	argv += ret;
 
 	nb_ports = rte_eth_dev_count();
-	if (nb_ports < 2 || (nb_ports & 1))
-		rte_exit(EXIT_FAILURE, "Error: number of ports must be even\n");
 
 	mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL",
 		NUM_MBUFS * nb_ports, MBUF_CACHE_SIZE, 0,
@@ -691,14 +746,15 @@ main(int argc, char *argv[])
 	if (ret != 0)
 		rte_exit(EXIT_FAILURE, "Cannot build the ARP cache\n");
 
-	if (EXAMPLE_ARP_DEBUG)
-		arp_cache_test();
+	if (rte_lcore_count() < 2)
+		rte_exit(EXIT_FAILURE, "Need at least two lcores\n");
 
-	if (rte_lcore_count() > 1)
-		printf("\nWARNING: Too much enabled lcores - "
-			"App uses only 1 lcore\n");
+	if (rte_eal_remote_launch(&arp_cache_writer, arp_cache_ring,
+			rte_get_next_lcore(0, 1, 0)))
+		rte_exit(EXIT_FAILURE, "Could not start ARP cache writer\n");
 
-	/* call lcore_main on master core only */
+	arp_cache_test();
+
 	lcore_main();
 	return 0;
 }
