@@ -365,7 +365,7 @@ hash:
 }
 #if 0
 static int32_t
-arp_cache_get(const uint32_t ip, struct ether_addr **ha)
+arp_cache_get(const uint32_t ip, struct ether_addr **ha, uint8_t *port)
 {
 	int32_t ret;
 
@@ -384,6 +384,7 @@ arp_cache_get(const uint32_t ip, struct ether_addr **ha)
 	} else {
 		struct arp_cache_entry *arp_entry = arp_cache_data[ret];
 		ether_addr_copy(&arp_entry->ha, *ha);
+		*port = arp_entry->port;
 		if (arp_entry->stale)
 			ret = -ESTALE;
 		else
