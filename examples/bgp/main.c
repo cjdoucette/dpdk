@@ -32,6 +32,7 @@
  */
 
 #include <stdint.h>
+#include <netinet/in.h>
 #include <inttypes.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
@@ -103,80 +104,67 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 	return 0;
 }
 
-static  __attribute__((noreturn)) void
-bgp_receiver(void)
-{
-	uint8_t port;
 
-	for (port = 0; port < nb_ports; port++)
-		if (rte_eth_dev_socket_id(port) > 0 &&
-				rte_eth_dev_socket_id(port) !=
-						(int)rte_socket_id())
-			printf("WARNING, port %u is on remote NUMA node to "
-					"polling thread.\n\tPerformance will "
-					"not be optimal.\n", port);
+static int
+bgp_receiver(__attribute__((unused)) void *arg)
+{
+	struct rte_mbuf *bufs[BURST_SIZE];
+	uint16_t nb_rx;
+	uint16_t buf;
+	uint8_t port = 1;
+
+	if (rte_eth_dev_socket_id(port) > 0 &&
+	    rte_eth_dev_socket_id(port) != (int)rte_socket_id())
+		printf("WARNING, port %u is on remote NUMA node to polling "
+		       "thread.\n\tPerformance will not be optimal.\n", port);
 
 	printf("\nCore %u forwarding packets. [Ctrl+C to quit]\n",
-			rte_lcore_id());
+	       rte_lcore_id());
+
 	for (;;) {
-		for (port = 0; port < nb_ports; port++) {
-			struct rte_mbuf *bufs[BURST_SIZE];
-			const uint16_t nb_rx = rte_eth_rx_burst(port, 0,
-					bufs, BURST_SIZE);
-			uint16_t buf;
+		nb_rx = rte_eth_rx_burst(port, 0, bufs, BURST_SIZE);
 
-			if (unlikely(nb_rx == 0))
-				continue;
+		if (unlikely(nb_rx == 0))
+			continue;
 
-			printf("bgp receiver got %hu packets\n", nb_rx);
-			for (buf = 0; buf < nb_rx; buf++) {
-				struct rte_mbuf *mbuf = bufs[buf];
-				unsigned int len = rte_pktmbuf_data_len(mbuf);
-				rte_pktmbuf_dump(stdout, mbuf, len);
-				rte_pktmbuf_free(mbuf);
-			}
+		printf("BGP receiver got %hu packets\n", nb_rx);
+		for (buf = 0; buf < nb_rx; buf++) {
+			struct rte_mbuf *mbuf = bufs[buf];
+			unsigned int len = rte_pktmbuf_data_len(mbuf);
+			rte_pktmbuf_dump(stdout, mbuf, len);
+			rte_pktmbuf_free(mbuf);
 		}
 	}
 }
 
-
-
-/*
- * Main thread that does the work, reading from INPUT_PORT
- * and writing to OUTPUT_PORT
- */
 static  __attribute__((noreturn)) void
 lcore_main(void)
 {
-	uint8_t port;
+	struct rte_mbuf *bufs[BURST_SIZE];
+	uint16_t nb_rx;
+	uint16_t buf;
+	uint8_t port = 0;
 
-	for (port = 0; port < nb_ports; port++)
-		if (rte_eth_dev_socket_id(port) > 0 &&
-				rte_eth_dev_socket_id(port) !=
-						(int)rte_socket_id())
-			printf("WARNING, port %u is on remote NUMA node to "
-					"polling thread.\n\tPerformance will "
-					"not be optimal.\n", port);
+	if (rte_eth_dev_socket_id(port) > 0 &&
+	    rte_eth_dev_socket_id(port) != (int)rte_socket_id())
+		printf("WARNING, port %u is on remote NUMA node to polling "
+		       "thread.\n\tPerformance will not be optimal.\n", port);
 
 	printf("\nCore %u forwarding packets. [Ctrl+C to quit]\n",
-			rte_lcore_id());
+	       rte_lcore_id());
+
 	for (;;) {
-		for (port = 0; port < nb_ports; port++) {
-			struct rte_mbuf *bufs[BURST_SIZE];
-			const uint16_t nb_rx = rte_eth_rx_burst(port, 0,
-					bufs, BURST_SIZE);
-			uint16_t buf;
+		nb_rx = rte_eth_rx_burst(port, 0, bufs, BURST_SIZE);
 
-			if (unlikely(nb_rx == 0))
-				continue;
+		if (unlikely(nb_rx == 0))
+			continue;
 
-			printf("main thread got %hu packets\n", nb_rx);
-			for (buf = 0; buf < nb_rx; buf++) {
-				struct rte_mbuf *mbuf = bufs[buf];
-				unsigned int len = rte_pktmbuf_data_len(mbuf);
-				rte_pktmbuf_dump(stdout, mbuf, len);
-				rte_pktmbuf_free(mbuf);
-			}
+		printf("Main thread got %hu packets\n", nb_rx);
+		for (buf = 0; buf < nb_rx; buf++) {
+			struct rte_mbuf *mbuf = bufs[buf];
+			unsigned int len = rte_pktmbuf_data_len(mbuf);
+			rte_pktmbuf_dump(stdout, mbuf, len);
+			rte_pktmbuf_free(mbuf);
 		}
 	}
 }
@@ -212,6 +200,12 @@ main(int argc, char *argv[])
 			rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu8"\n",
 					portid);
 
+	/* XXX In an environment with more than one queue, we should create
+	 * additional RX queues for the port on which BGP packets will
+	 * be received (via rte_eth_dev_configure()), and use that queue
+	 * identifier here. Then, use rte_eal_remote_launch() to start
+	 * an lcore that polls that queue.
+	 */
 	struct rte_eth_ntuple_filter bgp_filter = {
 		.flags = RTE_2TUPLE_FLAGS,
 		.dst_ip = 0,
