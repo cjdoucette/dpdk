@@ -747,7 +747,7 @@ main(int argc, char *argv[])
 	if (rte_lcore_count() < 2)
 		rte_exit(EXIT_FAILURE, "Need at least two lcores\n");
 
-	if (rte_eal_remote_launch(&arp_cache_writer, arp_cache_ring,
+	if (rte_eal_remote_launch(&arp_cache_writer, NULL,
 			rte_get_next_lcore(0, 1, 0)))
 		rte_exit(EXIT_FAILURE, "Could not start ARP cache writer\n");
 
