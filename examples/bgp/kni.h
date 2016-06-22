@@ -1,3 +1,5 @@
+#ifndef __BGP_KNI_H__
+#define __BGP_KNI_H__
 
 #define KNI_MAX_KTHREAD 32
 
@@ -19,3 +21,5 @@ extern struct kni_port_params *kni_port_params_array[RTE_MAX_ETHPORTS];
 void init_kni(void);
 void kni_release(uint8_t nb_sys_ports);
 int kni_alloc(uint8_t port_id);
+
+#endif /* __BGP_KNI_H__ */
