@@ -102,6 +102,8 @@ struct kni_port_params *kni_port_params_array[RTE_MAX_ETHPORTS];
 static rte_atomic32_t kni_stop = RTE_ATOMIC32_INIT(0);
 
 uint32_t ports_mask = 0;
+int promiscuous_on = 1;
+struct rte_mempool *pktmbuf_pool = NULL;
 
 struct rte_eth_conf port_conf = {
 	.rxmode = {
@@ -116,15 +118,8 @@ struct rte_eth_conf port_conf = {
 	},
 };
 
-
-
 /* TODO: needed? Socket for receiving updates from BGP daemon. */
 //static struct mnl_socket *nl;
-
-/* Mempool for mbufs */
-struct rte_mempool * pktmbuf_pool = NULL;
-
-int promiscuous_on = 1;
 
 static void
 kni_burst_free_mbufs(struct rte_mbuf **pkts, unsigned num)
@@ -139,8 +134,6 @@ kni_burst_free_mbufs(struct rte_mbuf **pkts, unsigned num)
 		pkts[i] = NULL;
 	}
 }
-
-
 
 /**
  * Interface to burst rx and enqueue mbufs into rx_q
@@ -188,6 +181,7 @@ kni_egress(struct kni_port_params *p)
 	unsigned nb_tx, num;
 	uint32_t nb_kni;
 	struct rte_mbuf *pkts_burst[PKT_BURST_SZ];
+	struct rte_mbuf *pkts_to_send[PKT_BURST_SZ];
 
 	if (p == NULL)
 		return;
@@ -195,21 +189,36 @@ kni_egress(struct kni_port_params *p)
 	nb_kni = p->nb_kni;
 	port_id = p->port_id;
 	for (i = 0; i < nb_kni; i++) {
+		struct ether_hdr *eth_hdr;
+		uint8_t to_send = 0;
+		uint8_t j;
+
 		/* Burst rx from kni */
 		num = rte_kni_rx_burst(p->kni[i], pkts_burst, PKT_BURST_SZ);
 		if (unlikely(num > PKT_BURST_SZ)) {
 			RTE_LOG(ERR, APP, "Error receiving from KNI\n");
 			return;
 		}
-		if (0) // TODO packets are netlink messages
-			data_cb(NULL);
+
+		for (j = 0; j < num; j++) {
+			eth_hdr = rte_pktmbuf_mtod(pkts_burst[i],
+						   struct ether_hdr *);
+			if (rte_be_to_cpu_16(eth_hdr->ether_type) ==
+			    ETHER_TYPE_EXPER) {
+				printf("port %hhu received NL packet\n", port_id);
+				// handle netlink message
+				rte_pktmbuf_free(pkts_burst[i]);
+			} else
+				pkts_to_send[to_send++] = pkts_burst[i];
+		}
 
 		/* Burst tx to eth */
-		nb_tx = rte_eth_tx_burst(port_id, 0, pkts_burst, (uint16_t)num);
-		if (unlikely(nb_tx < num)) {
+		nb_tx = rte_eth_tx_burst(port_id, 0, pkts_to_send,
+					 (uint16_t)to_send);
+		if (unlikely(nb_tx < to_send))
 			/* Free mbufs not tx to NIC */
-			kni_burst_free_mbufs(&pkts_burst[nb_tx], num - nb_tx);
-		}
+			kni_burst_free_mbufs(&pkts_to_send[nb_tx],
+					     to_send - nb_tx);
 	}
 }
 
