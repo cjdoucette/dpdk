@@ -47,9 +47,10 @@ endif
 APP = bgp
 
 # all source are stored in SRCS-y
-SRCS-y := main.c
+SRCS-y := main.c kni.c cli.c nl.c
 
 CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)
+LDLIBS += -lmnl
 
 include $(RTE_SDK)/mk/rte.extapp.mk
