@@ -22,7 +22,7 @@ And issue the `make` command:
 
 The application can be run with:
 
-    $ sudo ./build/bgp -c 0xf -n 4 -- -P -p 0x2 --config "(1,0,1,2)"
+    $ sudo ./build/bgp -c 0x3 -n 4 -- -P -p 0x2 --config "(1,0,1,2)"
 
 In a separate terminal in the VM, configure the newly-created kernel interface:
 
