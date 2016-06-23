@@ -14,8 +14,8 @@
 #include <arpa/inet.h>
 #include <time.h>
 
-#define BUF_SIZE	1500
-#define TCP_BGP_PORT	179
+#define BUF_SIZE		1500
+#define TCP_BGP_PORT		179
 #define ETH_P_EXPERIMENTAL	0x88B5
 
 /*
@@ -122,6 +122,7 @@ send_eth_frame(void)
 	nlh = mnl_nlmsg_put_header(buf + len);
 	nlh->nlmsg_type = RTM_NEWROUTE;
 	nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_EXCL;
+	printf("flags: %04hx\n", nlh->nlmsg_flags);
 	nlh->nlmsg_seq = seq = time(NULL);
 
 	rtm = mnl_nlmsg_put_extra_header(nlh, sizeof(struct rtmsg));
@@ -137,7 +138,7 @@ send_eth_frame(void)
 	rtm->rtm_flags = 0;
 
 	mnl_attr_put_u32(nlh, RTA_DST, dst);
-	mnl_attr_put_u32(nlh, RTA_OIF, iface);
+	mnl_attr_put_u32(nlh, RTA_OIF, 1);
 	mnl_attr_put_u32(nlh, RTA_GATEWAY, gw);
 
 	len += nlh->nlmsg_len;

@@ -47,7 +47,7 @@ endif
 APP = bgp
 
 # all source are stored in SRCS-y
-SRCS-y := main.c kni.c cli.c nl.c
+SRCS-y := main.c kni.c cli.c nl.c fib.c
 
 CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)

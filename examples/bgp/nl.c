@@ -1,7 +1,57 @@
 #include <libmnl/libmnl.h>
 #include <stdio.h>
 #include <arpa/inet.h>
+
 #include "nl.h"
+#include "fib.h"
+
+/*
+ * XXX DPDK LPM only supports egress interface, not gateway.
+ * What to do with RTA_GATEWAY?
+ */
+static void
+add_to_fib(struct nlattr *tb[], uint16_t type, uint16_t flags, uint8_t prefix)
+{
+	struct in_addr *dst;
+	uint8_t oif;
+
+	if (!tb[RTA_DST]) {
+		printf("cannot add or delete entry without RTA_DST\n");
+		return;
+	}
+
+	if (prefix > 32) {
+		printf("prefix must be in the range [0, 32]\n");
+		return;
+	}
+
+	dst = mnl_attr_get_payload(tb[RTA_DST]);
+
+	switch (type) {
+	case RTM_NEWROUTE:
+		if (!tb[RTA_OIF]) {
+			printf("cannot add/change route without RTA_OIF\n");
+			return;
+		}
+
+		printf("flags: %4hx\n", flags);
+		if (flags == (NLM_F_REQUEST | NLM_F_CREATE | NLM_F_EXCL)) {
+			oif = mnl_attr_get_u8(tb[RTA_OIF]);
+			fib_add_route(dst->s_addr, prefix, oif);
+		} else if (flags == (NLM_F_REQUEST | NLM_F_REPLACE)) {
+			oif = mnl_attr_get_u8(tb[RTA_OIF]);
+			fib_add_route(dst->s_addr, prefix, oif);
+		} else
+			printf("incorrect flags for RTM_NEWROUTE\n");
+
+		break;
+	case RTM_DELROUTE:
+		fib_del_route(dst->s_addr, prefix);
+		break;
+	default:
+		break;
+	}
+}
 
 static void
 attributes_show_ipv4(struct nlattr *tb[])
@@ -34,6 +84,7 @@ attributes_show_ipv4(struct nlattr *tb[])
 	if (tb[RTA_PRIORITY]) {
 		printf("prio=%u ", mnl_attr_get_u32(tb[RTA_PRIORITY]));
 	}
+	printf("\n");
 }
 
 static int
@@ -166,6 +217,8 @@ handle_nlmsg(const struct nlmsghdr *nlh)
 	case AF_INET:
 		mnl_attr_parse(nlh, sizeof(*rm), data_ipv4_attr_cb, tb);
 		attributes_show_ipv4(tb);
+		add_to_fib(tb, nlh->nlmsg_type, nlh->nlmsg_flags,
+			   rm->rtm_dst_len);
 		break;
 	}
 

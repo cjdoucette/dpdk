@@ -76,6 +76,7 @@
 #include "kni.h"
 #include "cli.h"
 #include "nl.h"
+#include "fib.h"
 #include "common.h"
 
 #define TCP_BGP_PORT	179
@@ -117,6 +118,9 @@ struct rte_eth_conf port_conf = {
 		.mq_mode = ETH_MQ_TX_NONE,
 	},
 };
+
+uint64_t dest_eth_addr[RTE_MAX_ETHPORTS];
+struct ether_addr ports_eth_addr[RTE_MAX_ETHPORTS];
 
 /* TODO: needed? Socket for receiving updates from BGP daemon. */
 //static struct mnl_socket *nl;
@@ -530,6 +534,23 @@ main(int argc, char** argv)
 
 	rte_eth_dev_filter_ctrl(1, RTE_ETH_FILTER_NTUPLE, RTE_ETH_FILTER_ADD,
 				&bgp_filter);
+
+
+	/* Initialize dst MACs for all ports. */
+	for (port = 0; port < RTE_MAX_ETHPORTS; port++) {
+		//dest_eth_addr[port] =
+		//	ETHER_LOCAL_ADMIN_ADDR + ((uint64_t)port << 40);
+		//rte_eth_macaddr_get(port, &ports_eth_addr[port]);
+	}
+
+	/*
+	 * To make this application NUMA-aware, the l3fwd application
+	 * uses the parameter to this setup function as a socket ID
+	 * for separate pools of memory and LPM lookup tables, per-lcore.
+	 * For this example, we'll just use one pool of packets and
+	 * one lookup table.
+	 */
+	fib_setup(0);
 
 	/* Launch per-lcore function on every lcore */
 
