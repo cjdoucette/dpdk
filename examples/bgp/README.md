@@ -2,6 +2,13 @@
 
 This sample application demonstrates how to let a BGP daemon running userspace interact with a routing table in DPDK.
 
+This sample consists of four components:
+
+ * The use of DPDK's filtering system (formerly called flow director) to put BGP packets (TCP packets with port 179) in a queue that is only served by a control lcore.
+ * The use of DPDK's kernel-NIC interface (KNI) to forward and receive BGP traffic to and from a BGP daemon listening in userspace.
+ * The use of Netlink messages so that the BGP daemon can edit the routing table.
+ * The use of DPDK's LPM module as a forwarding information base.
+
 ## Setup
 
 From inside the `dpdk` directory, go to the kernel modules directory:
@@ -28,17 +35,15 @@ In a separate terminal in the VM, configure the newly-created kernel interface:
 
     $ sudo ifconfig vEth1_0 192.168.57.12 netmask 255.255.255.0 up
 
-At any time, you can check the statistics of the KNI by issuing an interrupt:
-
-    $ sudo pkill -10 kni
-
 In this second terminal, go to the `examples/bgp` directory and build the sample BGP daemon:
 
-    $ gcc -Wall -Wextra bgp_daemon.c -o bgp_daemon
+    $ gcc -Wall -Wextra bgp_daemon.c -lmnl -o bgp_daemon
 
 And then run it:
 
     $ sudo ./bgp_daemon
+
+This daemon will send an `RTM_NEWROUTE` message to the `bgp` application through the KNI, triggering an entry to be added to the LPM table. The daemon will also listen for BGP packets that are passed through the KNI.
 
 You can then generate packets using the instructions below, observing that packets are passed to the DPDK port, queued to the control lcore, and sent to the BGP daemon.
 
