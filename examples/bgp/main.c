@@ -205,8 +205,7 @@ kni_egress(struct kni_port_params *p)
 						   struct ether_hdr *);
 			if (rte_be_to_cpu_16(eth_hdr->ether_type) ==
 			    ETHER_TYPE_EXPER) {
-				printf("port %hhu received NL packet\n", port_id);
-				// handle netlink message
+				handle_nlmsg((struct nlmsghdr *)(eth_hdr + 1));
 				rte_pktmbuf_free(pkts_burst[i]);
 			} else
 				pkts_to_send[to_send++] = pkts_burst[i];

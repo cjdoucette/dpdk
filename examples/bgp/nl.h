@@ -5,6 +5,6 @@
 
 #define ETHER_TYPE_EXPER	0x88B5
 
-int data_cb(const struct nlmsghdr *nlh);
+int handle_nlmsg(const struct nlmsghdr *nlh);
 
 #endif /* __BGP_NL_H__ */

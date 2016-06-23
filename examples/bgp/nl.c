@@ -72,7 +72,7 @@ data_ipv4_attr_cb(const struct nlattr *attr, void *data)
 }
 
 int
-data_cb(const struct nlmsghdr *nlh)
+handle_nlmsg(const struct nlmsghdr *nlh)
 {
 	struct nlattr *tb[RTA_MAX + 1] = {};
 	struct rtmsg *rm = mnl_nlmsg_get_payload(nlh);
