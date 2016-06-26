@@ -42,6 +42,7 @@
 #include <getopt.h>
 
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <linux/if.h>
 #include <linux/if_tun.h>
 #include <fcntl.h>
@@ -79,6 +80,7 @@
 #include "fib.h"
 #include "common.h"
 
+#define KNI_IP_ADDR	"192.168.57.12"
 #define TCP_BGP_PORT	179
 
 /* Size of the data buffer in each mbuf */
@@ -452,6 +454,47 @@ remote_launch_except_special(int (*f)(void *), void *arg,
 	return 0;
 }
 
+static int
+setup_bgp_filter(void)
+{
+	/* XXX In an environment with more than one queue, we should create
+	 * additional RX queues for the port on which BGP packets will
+	 * be received (via rte_eth_dev_configure()), and use that queue
+	 * identifier here. Then, use rte_eal_remote_launch() to start
+	 * an lcore that polls that queue.
+	 */
+	struct rte_eth_ntuple_filter bgp_filter = {
+		.flags = RTE_2TUPLE_FLAGS,
+		.dst_ip = 0, /* Set below. */
+		.dst_ip_mask = UINT32_MAX,
+		.src_ip = 0,
+		.src_ip_mask = 0,
+		.dst_port = TCP_BGP_PORT,
+		.dst_port_mask = UINT16_MAX,
+		.src_port = 0,
+		.src_port_mask = 0,
+		.proto = IPPROTO_TCP,
+		.proto_mask = UINT8_MAX,
+		.tcp_flags = 0,
+		.priority = 1, /* Lowest */
+		.queue = 0,
+	};
+
+	uint32_t kni_ip_addr;
+	int ret = inet_pton(AF_INET, KNI_IP_ADDR, &kni_ip_addr);
+	if (ret == 0) {
+		printf("%s is not a valid address in AF_INET\n", KNI_IP_ADDR);
+		return -1;
+	} else if (ret == -1) {
+		perror("inet_pton");
+		return -1;
+	}
+
+	bgp_filter.dst_ip = kni_ip_addr;
+	return rte_eth_dev_filter_ctrl(1, RTE_ETH_FILTER_NTUPLE,
+				       RTE_ETH_FILTER_ADD, &bgp_filter);
+}
+
 /* Initialise ports/queues etc. and start main loop on each core */
 int
 main(int argc, char** argv)
@@ -509,32 +552,10 @@ main(int argc, char** argv)
 	}
 	check_all_ports_link_status(nb_sys_ports, ports_mask);
 
-	/* XXX In an environment with more than one queue, we should create
-	 * additional RX queues for the port on which BGP packets will
-	 * be received (via rte_eth_dev_configure()), and use that queue
-	 * identifier here. Then, use rte_eal_remote_launch() to start
-	 * an lcore that polls that queue.
-	 */
-	struct rte_eth_ntuple_filter bgp_filter = {
-		.flags = RTE_2TUPLE_FLAGS,
-		.dst_ip = 0,
-		.dst_ip_mask = 0,
-		.src_ip = 0,
-		.src_ip_mask = 0,
-		.dst_port = TCP_BGP_PORT,
-		.dst_port_mask = UINT16_MAX,
-		.src_port = 0,
-		.src_port_mask = 0,
-		.proto = IPPROTO_TCP,
-		.proto_mask = UINT8_MAX,
-		.tcp_flags = 0,
-		.priority = 1, /* Lowest */
-		.queue = 0,
-	};
-
-	rte_eth_dev_filter_ctrl(1, RTE_ETH_FILTER_NTUPLE, RTE_ETH_FILTER_ADD,
-				&bgp_filter);
-
+	if (setup_bgp_filter()) {
+		printf("could not initialize BGP filter\n");
+		return -1;
+	}
 
 	/* Initialize dst MACs for all ports. */
 	for (port = 0; port < RTE_MAX_ETHPORTS; port++) {
