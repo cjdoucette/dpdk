@@ -1,11 +1,7 @@
-#include <rte_log.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
 #include <rte_string_fns.h>
 #include <rte_malloc.h>
-#include <rte_lcore.h>
 #include <getopt.h>
+
 #include "kni.h"
 #include "common.h"
 #include "cli.h"

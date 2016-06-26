@@ -1,4 +1,3 @@
-#include <inttypes.h>
 #include <rte_kni.h>
 #include <rte_malloc.h>
 #include <rte_ethdev.h>

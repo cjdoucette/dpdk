@@ -1,5 +1,4 @@
 #include <libmnl/libmnl.h>
-#include <stdio.h>
 #include <arpa/inet.h>
 
 #include "nl.h"
