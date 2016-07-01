@@ -51,7 +51,7 @@ extern "C" {
 #define APP_TX_DESC_DEFAULT 256
 
 #define APP_RING_SIZE (8*1024)
-#define NB_MBUF   (2*1024*1024)
+#define NB_MBUF   (2*1024)
 
 #define MAX_PKT_RX_BURST 64
 #define PKT_ENQUEUE 64
