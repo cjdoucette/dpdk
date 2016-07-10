@@ -39,13 +39,11 @@
 #include <rte_debug.h>
 #include <rte_ethdev.h>
 #include <rte_mempool.h>
-#include <rte_sched.h>
+#include <rte_sched_gk.h>
 #include <rte_cycles.h>
 #include <rte_string_fns.h>
-#include <rte_cfgfile.h>
 
 #include "main.h"
-#include "cfg_file.h"
 
 uint32_t app_numa_mask = 0;
 static uint32_t app_inited_port_mask = 0;
@@ -80,7 +78,6 @@ struct ring_thresh tx_thresh = {
 };
 
 uint32_t nb_pfc;
-const char *cfg_profile = NULL;
 int mp_size = NB_MBUF;
 struct flow_conf qos_conf[MAX_DATA_STREAMS];
 
@@ -174,7 +171,7 @@ app_init_port(uint8_t portid, struct rte_mempool *mp)
 	return 0;
 }
 
-static struct rte_sched_subport_params subport_params[MAX_SCHED_SUBPORTS] = {
+static struct rte_sched_gk_subport_params subport_params[MAX_SCHED_SUBPORTS] = {
 	{
 		.tb_rate = 1250000000,
 		.tb_size = 1000000,
@@ -184,14 +181,14 @@ static struct rte_sched_subport_params subport_params[MAX_SCHED_SUBPORTS] = {
 	},
 };
 
-static struct rte_sched_pipe_params pipe_profiles[RTE_SCHED_PIPE_PROFILES_PER_PORT] = {
+static struct rte_sched_gk_pipe_params pipe_profiles[RTE_SCHED_GK_PIPE_PROFILES_PER_PORT] = {
 	{ /* Profile #0 */
 		.tb_rate = 305175,
 		.tb_size = 1000000,
 
 		.tc_rate = {305175, 305175, 305175, 305175},
 		.tc_period = 40,
-#ifdef RTE_SCHED_SUBPORT_TC_OV
+#ifdef RTE_SCHED_GK_SUBPORT_TC_OV
 		.tc_ov_weight = 1,
 #endif
 
@@ -199,19 +196,19 @@ static struct rte_sched_pipe_params pipe_profiles[RTE_SCHED_PIPE_PROFILES_PER_PO
 	},
 };
 
-struct rte_sched_port_params port_params = {
+struct rte_sched_gk_port_params port_params = {
 	.name = "port_scheduler_0",
 	.socket = 0, /* computed */
 	.rate = 0, /* computed */
 	.mtu = 6 + 6 + 4 + 4 + 2 + 1500,
-	.frame_overhead = RTE_SCHED_FRAME_OVERHEAD_DEFAULT,
+	.frame_overhead = RTE_SCHED_GK_FRAME_OVERHEAD_DEFAULT,
 	.n_subports_per_port = 1,
 	.n_pipes_per_subport = 4096,
 	.qsize = {64, 64, 64, 64},
 	.pipe_profiles = pipe_profiles,
-	.n_pipe_profiles = sizeof(pipe_profiles) / sizeof(struct rte_sched_pipe_params),
+	.n_pipe_profiles = sizeof(pipe_profiles) / sizeof(struct rte_sched_gk_pipe_params),
 
-#ifdef RTE_SCHED_RED
+#ifdef RTE_SCHED_GK_RED
 	.red_params = {
 		/* Traffic Class 0 Colors Green / Yellow / Red */
 		[0][0] = {.min_th = 48, .max_th = 64, .maxp_inv = 10, .wq_log2 = 9},
@@ -233,16 +230,17 @@ struct rte_sched_port_params port_params = {
 		[3][1] = {.min_th = 40, .max_th = 64, .maxp_inv = 10, .wq_log2 = 9},
 		[3][2] = {.min_th = 32, .max_th = 64, .maxp_inv = 10, .wq_log2 = 9}
 	}
-#endif /* RTE_SCHED_RED */
+#endif /* RTE_SCHED_GK_RED */
 };
 
-static struct rte_sched_port *
+static struct rte_sched_gk_port *
 app_init_sched_port(uint32_t portid, uint32_t socketid)
 {
 	static char port_name[32]; /* static as referenced from global port_params*/
 	struct rte_eth_link link;
-	struct rte_sched_port *port = NULL;
-	uint32_t pipe, subport;
+	struct rte_sched_gk_port *port = NULL;
+//	uint32_t pipe, subport;
+	uint32_t subport;
 	int err;
 
 	rte_eth_link_get((uint8_t)portid, &link);
@@ -252,18 +250,18 @@ app_init_sched_port(uint32_t portid, uint32_t socketid)
 	snprintf(port_name, sizeof(port_name), "port_%d", portid);
 	port_params.name = port_name;
 
-	port = rte_sched_port_config(&port_params);
+	port = rte_sched_gk_port_config(&port_params);
 	if (port == NULL){
 		rte_exit(EXIT_FAILURE, "Unable to config sched port\n");
 	}
 
 	for (subport = 0; subport < port_params.n_subports_per_port; subport ++) {
-		err = rte_sched_subport_config(port, subport, &subport_params[subport]);
+		err = rte_sched_gk_subport_config(port, subport, &subport_params[subport]);
 		if (err) {
 			rte_exit(EXIT_FAILURE, "Unable to config sched subport %u, err=%d\n",
 					subport, err);
 		}
-
+/*
 		for (pipe = 0; pipe < port_params.n_pipes_per_subport; pipe ++) {
 			if (app_pipe_to_profile[subport][pipe] != -1) {
 				err = rte_sched_pipe_config(port, subport, pipe,
@@ -275,26 +273,77 @@ app_init_sched_port(uint32_t portid, uint32_t socketid)
 				}
 			}
 		}
+*/
 	}
 
 	return port;
 }
 
 static int
-app_load_cfg_profile(const char *profile)
+init_pipe(struct rte_sched_gk_pipe_params *pipe_params)
 {
-	if (profile == NULL)
-		return 0;
-	struct rte_cfgfile *file = rte_cfgfile_load(profile, 0);
-	if (file == NULL)
-		rte_exit(EXIT_FAILURE, "Cannot load configuration profile %s\n", profile);
+	int i, j;
 
-	cfg_load_port(file, &port_params);
-	cfg_load_subport(file, subport_params);
-	cfg_load_pipe(file, pipe_profiles);
+	if (!pipe_params)
+		return -1;
 
-	rte_cfgfile_close(file);
+	port_params.n_pipe_profiles = 1;
 
+	for (j = 0; j < 1; j++) {
+
+		pipe_params[j].tb_rate = 30517;
+		pipe_params[j].tb_size = 100000;
+		pipe_params[j].tc_period = 40;
+
+		pipe_params[j].tc_rate[0] = 30517;
+		pipe_params[j].tc_rate[1] = 1;
+		pipe_params[j].tc_rate[2] = 1;
+		pipe_params[j].tc_rate[3] = 1;
+
+		for (i = 0; i < RTE_SCHED_GK_QUEUES_PER_TRAFFIC_CLASS; i++) {
+			pipe_params[j].wrr_weights[i] = 1;
+			pipe_params[j].wrr_weights[RTE_SCHED_GK_TRAFFIC_CLASSES_PER_PIPE*1 + i] = 1;
+			pipe_params[j].wrr_weights[RTE_SCHED_GK_TRAFFIC_CLASSES_PER_PIPE*2 + i] = 1;
+			pipe_params[j].wrr_weights[RTE_SCHED_GK_TRAFFIC_CLASSES_PER_PIPE*3 + i] = 1;
+		}
+	}
+
+	return 0;
+}
+
+static int
+init_subport(struct rte_sched_gk_subport_params *subport_params)
+{
+	int i, j;
+
+	if (!subport_params)
+		return -1;
+
+	memset(app_pipe_to_profile, -1, sizeof(app_pipe_to_profile));
+
+	for (i = 0; i < MAX_SCHED_SUBPORTS; i++) {
+
+		subport_params[i].tb_rate = 125000000;
+		subport_params[i].tb_size = 100000;
+		subport_params[i].tc_period = 10;
+		subport_params[i].tc_rate[0] = 125000000;
+		subport_params[i].tc_rate[1] = 1;
+		subport_params[i].tc_rate[2] = 1;
+		subport_params[i].tc_rate[3] = 1;
+
+		for (j = 0; j < MAX_SCHED_PIPES; j++) {
+			app_pipe_to_profile[i][j] = 0;
+		}
+	}
+
+	return 0;
+}
+
+static int
+app_init_subport_and_pipe(void)
+{
+	init_subport(subport_params);
+	init_pipe(pipe_profiles);
 	return 0;
 }
 
@@ -307,9 +356,8 @@ int app_init(void)
 	if (rte_eth_dev_count() == 0)
 		rte_exit(EXIT_FAILURE, "No Ethernet port - bye\n");
 
-	/* load configuration profile */
-	if (app_load_cfg_profile(cfg_profile) != 0)
-		rte_exit(EXIT_FAILURE, "Invalid configuration profile\n");
+	if (app_init_subport_and_pipe() != 0)
+		rte_exit(EXIT_FAILURE, "Can't init subport and pipe\n");
 
 	/* Initialize each active flow */
 	for(i = 0; i < nb_pfc; i++) {

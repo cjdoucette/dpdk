@@ -38,15 +38,13 @@
 extern "C" {
 #endif
 
-#include <rte_sched.h>
+#include <rte_sched_gk.h>
 
 #define RTE_LOGTYPE_APP RTE_LOGTYPE_USER1
 
 /*
  * Configurable number of RX/TX ring descriptors
  */
-#define APP_INTERACTIVE_DEFAULT 0
-
 #define APP_RX_DESC_DEFAULT 128
 #define APP_TX_DESC_DEFAULT 256
 
@@ -107,7 +105,7 @@ struct thread_conf
 	uint16_t tx_queue;
 	struct rte_ring *rx_ring;
 	struct rte_ring *tx_ring;
-	struct rte_sched_port *sched_port;
+	struct rte_sched_gk_port *sched_port;
 
 #if APP_COLLECT_STAT
 	struct thread_stat stat;
@@ -126,7 +124,7 @@ struct flow_conf
 	uint16_t tx_queue;
 	struct rte_ring *rx_ring;
 	struct rte_ring *tx_ring;
-	struct rte_sched_port *sched_port;
+	struct rte_sched_gk_port *sched_port;
 	struct rte_mempool *mbuf_pool;
 
 	struct thread_conf rx_thread;
@@ -161,7 +159,6 @@ extern uint8_t interactive;
 extern uint32_t qavg_period;
 extern uint32_t qavg_ntimes;
 extern uint32_t nb_pfc;
-extern const char *cfg_profile;
 extern int mp_size;
 extern struct flow_conf qos_conf[];
 extern int app_pipe_to_profile[MAX_SCHED_SUBPORTS][MAX_SCHED_PIPES];
@@ -171,7 +168,7 @@ extern struct burst_conf burst_conf;
 extern struct ring_thresh rx_thresh;
 extern struct ring_thresh tx_thresh;
 
-extern struct rte_sched_port_params port_params;
+extern struct rte_sched_gk_port_params port_params;
 
 int app_parse_args(int argc, char **argv);
 int app_init(void);

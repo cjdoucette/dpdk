@@ -41,7 +41,7 @@
 #include <rte_memcpy.h>
 #include <rte_byteorder.h>
 #include <rte_branch_prediction.h>
-#include <rte_sched.h>
+#include <rte_sched_gk.h>
 
 #include "main.h"
 
@@ -69,11 +69,12 @@ get_pkt_sched(struct rte_mbuf *m, uint32_t *subport, uint32_t *pipe,
 			(port_params.n_subports_per_port - 1); /* Outer VLAN ID*/
 	*pipe = (rte_be_to_cpu_16(pdata[PIPE_OFFSET]) & 0x0FFF) &
 			(port_params.n_pipes_per_subport - 1); /* Inner VLAN ID */
-	*traffic_class = (pdata[QUEUE_OFFSET] & 0x0F) &
-			(RTE_SCHED_TRAFFIC_CLASSES_PER_PIPE - 1); /* Destination IP */
-	*queue = ((pdata[QUEUE_OFFSET] >> 8) & 0x0F) &
-			(RTE_SCHED_QUEUES_PER_TRAFFIC_CLASS - 1) ; /* Destination IP */
-	*color = pdata[COLOR_OFFSET] & 0x03; 	/* Destination IP */
+
+	
+	*traffic_class = 0;
+	*queue = 0;
+
+	*color = pdata[COLOR_OFFSET] & 0x03;	/* Destinatino IP */
 
 	return 0;
 }
@@ -102,7 +103,7 @@ app_rx_thread(struct thread_conf **confs)
 			for(i = 0; i < nb_rx; i++) {
 				get_pkt_sched(rx_mbufs[i],
 						&subport, &pipe, &traffic_class, &queue, &color);
-				rte_sched_port_pkt_write(rx_mbufs[i], subport, pipe,
+				rte_sched_gk_port_pkt_write(rx_mbufs[i], subport, pipe,
 						traffic_class, queue, (enum rte_meter_color) color);
 			}
 
@@ -221,14 +222,14 @@ app_worker_thread(struct thread_conf **confs)
 		retval = rte_ring_sc_dequeue_bulk(conf->rx_ring, (void **)mbufs,
 					burst_conf.ring_burst);
 		if (likely(retval == 0)) {
-			int nb_sent = rte_sched_port_enqueue(conf->sched_port, mbufs,
+			int nb_sent = rte_sched_gk_port_enqueue(conf->sched_port, mbufs,
 					burst_conf.ring_burst);
 
 			APP_STATS_ADD(conf->stat.nb_drop, burst_conf.ring_burst - nb_sent);
 			APP_STATS_ADD(conf->stat.nb_rx, burst_conf.ring_burst);
 		}
 
-		nb_pkt = rte_sched_port_dequeue(conf->sched_port, mbufs,
+		nb_pkt = rte_sched_gk_port_dequeue(conf->sched_port, mbufs,
 					burst_conf.qos_dequeue);
 		if (likely(nb_pkt > 0))
 			while (rte_ring_sp_enqueue_bulk(conf->tx_ring, (void **)mbufs, nb_pkt) != 0);
@@ -256,7 +257,7 @@ app_mixed_thread(struct thread_conf **confs)
 		retval = rte_ring_sc_dequeue_bulk(conf->rx_ring, (void **)mbufs,
 					burst_conf.ring_burst);
 		if (likely(retval == 0)) {
-			int nb_sent = rte_sched_port_enqueue(conf->sched_port, mbufs,
+			int nb_sent = rte_sched_gk_port_enqueue(conf->sched_port, mbufs,
 					burst_conf.ring_burst);
 
 			APP_STATS_ADD(conf->stat.nb_drop, burst_conf.ring_burst - nb_sent);
@@ -264,7 +265,7 @@ app_mixed_thread(struct thread_conf **confs)
 		}
 
 
-		nb_pkt = rte_sched_port_dequeue(conf->sched_port, mbufs,
+		nb_pkt = rte_sched_gk_port_dequeue(conf->sched_port, mbufs,
 					burst_conf.qos_dequeue);
 		if (likely(nb_pkt > 0)) {
 			app_send_packets(conf, mbufs, nb_pkt);

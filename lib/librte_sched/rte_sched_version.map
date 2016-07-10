@@ -17,6 +17,14 @@ DPDK_2.0 {
 	rte_sched_queue_read_stats;
 	rte_sched_subport_config;
 	rte_sched_subport_read_stats;
+	rte_sched_gk_port_config;
+	rte_sched_gk_port_dequeue;
+	rte_sched_gk_port_enqueue;
+	rte_sched_gk_port_free;
+	rte_sched_gk_port_get_memory_footprint;
+	rte_sched_gk_queue_read_stats;
+	rte_sched_gk_subport_config;
+	rte_sched_gk_subport_read_stats;
 
 	local: *;
 };
@@ -27,5 +35,8 @@ DPDK_2.1 {
 	rte_sched_port_pkt_write;
 	rte_sched_port_pkt_read_tree_path;
 	rte_sched_port_pkt_read_color;
+	rte_sched_gk_port_pkt_write;
+	rte_sched_gk_port_pkt_read_tree_path;
+	rte_sched_gk_port_pkt_read_color;
 
 } DPDK_2.0;

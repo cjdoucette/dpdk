@@ -43,8 +43,6 @@
 #include <rte_byteorder.h>
 #include <rte_branch_prediction.h>
 
-#include <rte_sched.h>
-
 #include "main.h"
 
 #define APP_MODE_NONE 0
@@ -52,7 +50,6 @@
 #define APP_WT_MODE   2
 #define APP_TX_MODE   4
 
-uint8_t interactive = APP_INTERACTIVE_DEFAULT;
 uint32_t qavg_period = APP_QAVG_PERIOD;
 uint32_t qavg_ntimes = APP_QAVG_NTIMES;
 
@@ -238,16 +235,9 @@ main(int argc, char **argv)
 	/* launch per-lcore init on every lcore */
 	rte_eal_mp_remote_launch(app_main_loop, NULL, SKIP_MASTER);
 
-	if (interactive) {
+	while(1) {
 		sleep(1);
-		prompt();
-	}
-	else {
-		/* print statistics every second */
-		while(1) {
-			sleep(1);
-			app_stat();
-		}
+		app_stat();
 	}
 
 	return 0;

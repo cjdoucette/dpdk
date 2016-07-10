@@ -48,12 +48,11 @@ else
 APP = queues
 
 # all source are stored in SRCS-y
-SRCS-y := main.c args.c init.c app_thread.c cfg_file.c cmdline.c stats.c
+SRCS-y := main.c args.c init.c app_thread.c stats.c
 
 CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)
 CFLAGS_args.o := -D_GNU_SOURCE
-CFLAGS_cfg_file.o := -D_GNU_SOURCE
 
 include $(RTE_SDK)/mk/rte.extapp.mk
 
