@@ -45,6 +45,8 @@
 
 #include "main.h"
 
+#define RATE	32000
+
 uint32_t app_numa_mask = 0;
 static uint32_t app_inited_port_mask = 0;
 
@@ -173,21 +175,21 @@ app_init_port(uint8_t portid, struct rte_mempool *mp)
 
 static struct rte_sched_gk_subport_params subport_params[MAX_SCHED_SUBPORTS] = {
 	{
-		.tb_rate = 1250000000,
-		.tb_size = 1000000,
+		.tb_rate = RATE,
+		.tb_size = RATE,
 
-		.tc_rate = {1250000000, 1250000000, 1250000000, 1250000000},
-		.tc_period = 10,
+		.tc_rate = {RATE, 1, 1, 1},
+		.tc_period = 1000,
 	},
 };
 
 static struct rte_sched_gk_pipe_params pipe_profiles[RTE_SCHED_GK_PIPE_PROFILES_PER_PORT] = {
 	{ /* Profile #0 */
-		.tb_rate = 305175,
-		.tb_size = 1000000,
+		.tb_rate = RATE,
+		.tb_size = RATE,
 
-		.tc_rate = {305175, 305175, 305175, 305175},
-		.tc_period = 40,
+		.tc_rate = {RATE, 1, 1, 1},
+		.tc_period = 1000,
 #ifdef RTE_SCHED_GK_SUBPORT_TC_OV
 		.tc_ov_weight = 1,
 #endif
@@ -239,8 +241,7 @@ app_init_sched_port(uint32_t portid, uint32_t socketid)
 	static char port_name[32]; /* static as referenced from global port_params*/
 	struct rte_eth_link link;
 	struct rte_sched_gk_port *port = NULL;
-//	uint32_t pipe, subport;
-	uint32_t subport;
+	uint32_t pipe, subport;
 	int err;
 
 	rte_eth_link_get((uint8_t)portid, &link);
@@ -261,10 +262,10 @@ app_init_sched_port(uint32_t portid, uint32_t socketid)
 			rte_exit(EXIT_FAILURE, "Unable to config sched subport %u, err=%d\n",
 					subport, err);
 		}
-/*
+
 		for (pipe = 0; pipe < port_params.n_pipes_per_subport; pipe ++) {
 			if (app_pipe_to_profile[subport][pipe] != -1) {
-				err = rte_sched_pipe_config(port, subport, pipe,
+				err = rte_sched_gk_pipe_config(port, subport, pipe,
 						app_pipe_to_profile[subport][pipe]);
 				if (err) {
 					rte_exit(EXIT_FAILURE, "Unable to config sched pipe %u "
@@ -273,7 +274,7 @@ app_init_sched_port(uint32_t portid, uint32_t socketid)
 				}
 			}
 		}
-*/
+
 	}
 
 	return port;
@@ -291,11 +292,11 @@ init_pipe(struct rte_sched_gk_pipe_params *pipe_params)
 
 	for (j = 0; j < 1; j++) {
 
-		pipe_params[j].tb_rate = 30517;
-		pipe_params[j].tb_size = 100000;
-		pipe_params[j].tc_period = 40;
+		pipe_params[j].tb_rate = RATE;
+		pipe_params[j].tb_size = RATE;
+		pipe_params[j].tc_period = 1000;
 
-		pipe_params[j].tc_rate[0] = 30517;
+		pipe_params[j].tc_rate[0] = RATE;
 		pipe_params[j].tc_rate[1] = 1;
 		pipe_params[j].tc_rate[2] = 1;
 		pipe_params[j].tc_rate[3] = 1;
@@ -323,10 +324,10 @@ init_subport(struct rte_sched_gk_subport_params *subport_params)
 
 	for (i = 0; i < MAX_SCHED_SUBPORTS; i++) {
 
-		subport_params[i].tb_rate = 125000000;
+		subport_params[i].tb_rate = 100000;
 		subport_params[i].tb_size = 100000;
-		subport_params[i].tc_period = 10;
-		subport_params[i].tc_rate[0] = 125000000;
+		subport_params[i].tc_period = 1000;
+		subport_params[i].tc_rate[0] = 100000;
 		subport_params[i].tc_rate[1] = 1;
 		subport_params[i].tc_rate[2] = 1;
 		subport_params[i].tc_rate[3] = 1;
