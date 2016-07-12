@@ -48,7 +48,7 @@ else
 APP = queues
 
 # all source are stored in SRCS-y
-SRCS-y := main.c args.c init.c app_thread.c stats.c
+SRCS-y := main.c init.c threads.c
 
 CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)

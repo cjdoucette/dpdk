@@ -34,17 +34,9 @@
 #ifndef _MAIN_H_
 #define _MAIN_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#include <rte_sched_gk.h>
-
 #define RTE_LOGTYPE_APP RTE_LOGTYPE_USER1
 
-/*
- * Configurable number of RX/TX ring descriptors
- */
+/* Configurable number of RX/TX ring descriptors. */
 #define APP_RX_DESC_DEFAULT 128
 #define APP_TX_DESC_DEFAULT 256
 
@@ -56,6 +48,12 @@ extern "C" {
 #define PKT_DEQUEUE 32
 #define MAX_PKT_TX_BURST 64
 
+#define BURST_TX_DRAIN_US 100
+
+#ifndef APP_MAX_LCORE
+#define APP_MAX_LCORE 64
+#endif
+
 #define RX_PTHRESH 8 /**< Default values of RX prefetch threshold reg. */
 #define RX_HTHRESH 8 /**< Default values of RX host threshold reg. */
 #define RX_WTHRESH 4 /**< Default values of RX write-back threshold reg. */
@@ -64,132 +62,82 @@ extern "C" {
 #define TX_HTHRESH 0  /**< Default values of TX host threshold reg. */
 #define TX_WTHRESH 0  /**< Default values of TX write-back threshold reg. */
 
-#define BURST_TX_DRAIN_US 100
+struct app_conf {
+	uint16_t rx_queue_size;
+	uint16_t tx_queue_size;
+	unsigned int mbuf_pool_size;
 
-#ifndef APP_MAX_LCORE
-#define APP_MAX_LCORE 64
-#endif
-#define MAX_DATA_STREAMS (APP_MAX_LCORE/2)
-#define MAX_SCHED_SUBPORTS		8
-#define MAX_SCHED_PIPES		4096
-
-#ifndef APP_COLLECT_STAT
-#define APP_COLLECT_STAT		1
-#endif
-
-#if APP_COLLECT_STAT
-#define APP_STATS_ADD(stat,val) (stat) += (val)
-#else
-#define APP_STATS_ADD(stat,val) do {(void) (val);} while (0)
-#endif
-
-#define APP_QAVG_NTIMES 10
-#define APP_QAVG_PERIOD 100
-
-struct thread_stat
-{
-	uint64_t nb_rx;
-	uint64_t nb_drop;
-};
-
-
-struct thread_conf
-{
-	uint32_t counter;
-	uint32_t n_mbufs;
-	struct rte_mbuf **m_table;
-
-	uint8_t rx_port;
-	uint8_t tx_port;
-	uint16_t rx_queue;
-	uint16_t tx_queue;
-	struct rte_ring *rx_ring;
-	struct rte_ring *tx_ring;
-	struct rte_sched_gk_port *sched_port;
-
-#if APP_COLLECT_STAT
-	struct thread_stat stat;
-#endif
-} __rte_cache_aligned;
-
-
-struct flow_conf
-{
-	uint32_t rx_core;
-	uint32_t wt_core;
-	uint32_t tx_core;
-	uint8_t rx_port;
-	uint8_t tx_port;
-	uint16_t rx_queue;
-	uint16_t tx_queue;
-	struct rte_ring *rx_ring;
-	struct rte_ring *tx_ring;
-	struct rte_sched_gk_port *sched_port;
 	struct rte_mempool *mbuf_pool;
 
-	struct thread_conf rx_thread;
-	struct thread_conf wt_thread;
-	struct thread_conf tx_thread;
+	uint8_t rx_pthresh; /**< Ring prefetch threshold. */
+	uint8_t rx_hthresh; /**< Ring host threshold. */
+	uint8_t rx_wthresh; /**< Ring writeback threshold. */
+	uint8_t tx_pthresh; /**< Ring prefetch threshold. */
+	uint8_t tx_hthresh; /**< Ring host threshold. */
+	uint8_t tx_wthresh; /**< Ring writeback threshold. */
 };
 
+struct queues_conf {
+	/* Rings for RX, worker, and TX lcores to communicate if needed. */
+	struct rte_ring *rx_ring;
+	struct rte_ring *tx_ring;
+	
+	/* Array of packets that are going to be transmitted next. */
+	struct rte_mbuf **m_table;
 
-struct ring_conf
-{
-	uint32_t rx_size;
-	uint32_t ring_size;
-	uint32_t tx_size;
+	/* Number of packets to be transmitted next. */
+	uint32_t n_mbufs;
+	/*
+	 * The tx thread transmits packets once a threshold is reached,
+	 * so this counter is used to make sure that even if the
+	 * threshold is not reached, after some timeout the packets are sent.
+	 */
+	uint32_t counter;
+
+	int socket;
+	uint32_t rate;
+
+	uint32_t mtu;
+	uint32_t frame_overhead;
+
+	uint16_t queue_size;
+
+	/* Token bucket. */
+	uint64_t tb_time;
+	uint32_t tb_period;
+	uint32_t tb_credits_per_period;
+	uint32_t tb_size;
+	uint32_t tb_credits;
+
+	unsigned int ring_size;
+
+	/* Maximum number of packets read from device at once. */
+	uint16_t rx_burst_size;
+	/* Maximum number of packets written to/read from an RX ring. */
+	uint16_t ring_burst_size;
+	/* Maximum number of packets written to/read from a TX ring. */
+	uint16_t qos_burst_size;
+	/* Maximum number of packets written device at once. */
+	uint16_t tx_burst_size;
+
+	uint16_t rx_queue;
+	uint16_t tx_queue;
+	uint8_t rx_port;
+	uint8_t tx_port;
+	uint8_t rx_core;
+	uint8_t tx_req_core;
+	uint8_t tx_pri_core;
+	uint8_t worker_req_core;
+	uint8_t worker_pri_core;
 };
 
-struct burst_conf
-{
-	uint16_t rx_burst;
-	uint16_t ring_burst;
-	uint16_t qos_dequeue;
-	uint16_t tx_burst;
-};
+int queues_init(struct app_conf *app_conf, struct queues_conf *req_conf,
+	struct queues_conf *pri_conf);
 
-struct ring_thresh
-{
-	uint8_t pthresh; /**< Ring prefetch threshold. */
-	uint8_t hthresh; /**< Ring host threshold. */
-	uint8_t wthresh; /**< Ring writeback threshold. */
-};
-
-extern uint8_t interactive;
-extern uint32_t qavg_period;
-extern uint32_t qavg_ntimes;
-extern uint32_t nb_pfc;
-extern int mp_size;
-extern struct flow_conf qos_conf[];
-extern int app_pipe_to_profile[MAX_SCHED_SUBPORTS][MAX_SCHED_PIPES];
-
-extern struct ring_conf ring_conf;
-extern struct burst_conf burst_conf;
-extern struct ring_thresh rx_thresh;
-extern struct ring_thresh tx_thresh;
-
-extern struct rte_sched_gk_port_params port_params;
-
-int app_parse_args(int argc, char **argv);
-int app_init(void);
-
-void prompt(void);
-void app_rx_thread(struct thread_conf **qconf);
-void app_tx_thread(struct thread_conf **qconf);
-void app_worker_thread(struct thread_conf **qconf);
-void app_mixed_thread(struct thread_conf **qconf);
-
-void app_stat(void);
-int subport_stat(uint8_t port_id, uint32_t subport_id);
-int pipe_stat(uint8_t port_id, uint32_t subport_id, uint32_t pipe_id);
-int qavg_q(uint8_t port_id, uint32_t subport_id, uint32_t pipe_id, uint8_t tc, uint8_t q);
-int qavg_tcpipe(uint8_t port_id, uint32_t subport_id, uint32_t pipe_id, uint8_t tc);
-int qavg_pipe(uint8_t port_id, uint32_t subport_id, uint32_t pipe_id);
-int qavg_tcsubport(uint8_t port_id, uint32_t subport_id, uint8_t tc);
-int qavg_subport(uint8_t port_id, uint32_t subport_id);
-
-#ifdef __cplusplus
-}
-#endif
+void rx_thread(struct queues_conf *conf);
+void req_thread(struct queues_conf *conf);
+void pri_thread(struct queues_conf *conf);
+void req_tx_thread(struct queues_conf *conf);
+void pri_tx_thread(struct queues_conf *conf);
 
 #endif /* _MAIN_H_ */
