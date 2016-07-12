@@ -191,17 +191,17 @@ int queues_init(struct app_conf *app_conf, struct queues_conf *req_conf,
 		rte_exit(EXIT_FAILURE, "No Ethernet port - bye\n");
 
 	/* Initialize request packet flow. */
-	socket = rte_lcore_to_socket_id(req_conf->rx_core);
+	socket = rte_lcore_to_socket_id(app_conf->rx_core);
 
-	snprintf(ring_name, MAX_NAME_LEN, "ring-rx-%u", req_conf->rx_core);
+	snprintf(ring_name, MAX_NAME_LEN, "ring-rx-%u", app_conf->rx_core);
 	req_conf->rx_ring = rte_ring_create(ring_name, req_conf->ring_size,
 		socket, RING_F_SP_ENQ | RING_F_SC_DEQ);
 
-	snprintf(ring_name, MAX_NAME_LEN, "ring-req-%u", req_conf->tx_req_core);
+	snprintf(ring_name, MAX_NAME_LEN, "ring-req-%u", app_conf->tx_req_core);
 	req_conf->tx_ring = rte_ring_create(ring_name, req_conf->ring_size,
 		socket, RING_F_SP_ENQ | RING_F_SC_DEQ);
 
-	snprintf(ring_name, MAX_NAME_LEN, "ring-pri-%u", req_conf->tx_pri_core);
+	snprintf(ring_name, MAX_NAME_LEN, "ring-pri-%u", app_conf->tx_pri_core);
 	req_conf->tx_ring = rte_ring_create(ring_name, pri_conf->ring_size,
 		socket, RING_F_SP_ENQ | RING_F_SC_DEQ);
 

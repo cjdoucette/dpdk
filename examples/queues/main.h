@@ -69,6 +69,12 @@ struct app_conf {
 
 	struct rte_mempool *mbuf_pool;
 
+	uint8_t rx_core;
+	uint8_t tx_req_core;
+	uint8_t tx_pri_core;
+	uint8_t worker_req_core;
+	uint8_t worker_pri_core;
+
 	uint8_t rx_pthresh; /**< Ring prefetch threshold. */
 	uint8_t rx_hthresh; /**< Ring host threshold. */
 	uint8_t rx_wthresh; /**< Ring writeback threshold. */
@@ -124,11 +130,6 @@ struct queues_conf {
 	uint16_t tx_queue;
 	uint8_t rx_port;
 	uint8_t tx_port;
-	uint8_t rx_core;
-	uint8_t tx_req_core;
-	uint8_t tx_pri_core;
-	uint8_t worker_req_core;
-	uint8_t worker_pri_core;
 };
 
 int queues_init(struct app_conf *app_conf, struct queues_conf *req_conf,
