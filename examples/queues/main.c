@@ -43,6 +43,7 @@
 
 static struct queues_conf req_conf;
 static struct queues_conf pri_conf;
+
 static struct app_conf app_conf;
 
 static int

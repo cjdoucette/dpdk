@@ -36,48 +36,26 @@
 
 #define RTE_LOGTYPE_APP RTE_LOGTYPE_USER1
 
-/* Configurable number of RX/TX ring descriptors. */
-#define APP_RX_DESC_DEFAULT 128
-#define APP_TX_DESC_DEFAULT 256
-
-#define APP_RING_SIZE (8*1024)
-#define NB_MBUF   (2*1024)
-
-#define MAX_PKT_RX_BURST 64
-#define PKT_ENQUEUE 64
-#define PKT_DEQUEUE 32
-#define MAX_PKT_TX_BURST 64
-
-#define BURST_TX_DRAIN_US 100
-
 #ifndef APP_MAX_LCORE
 #define APP_MAX_LCORE 64
 #endif
 
-#define RX_PTHRESH 8 /**< Default values of RX prefetch threshold reg. */
-#define RX_HTHRESH 8 /**< Default values of RX host threshold reg. */
-#define RX_WTHRESH 4 /**< Default values of RX write-back threshold reg. */
-
-#define TX_PTHRESH 36 /**< Default values of TX prefetch threshold reg. */
-#define TX_HTHRESH 0  /**< Default values of TX host threshold reg. */
-#define TX_WTHRESH 0  /**< Default values of TX write-back threshold reg. */
-
 struct app_conf {
-	uint16_t rx_queue_size;
-	uint16_t tx_queue_size;
-	unsigned int mbuf_pool_size;
-
 	struct rte_mempool *mbuf_pool;
 
-	uint8_t rx_core;
+	uint32_t mbuf_pool_size;
+	uint16_t rx_queue_size;
+	uint16_t tx_queue_size;
+
 	uint8_t tx_req_core;
 	uint8_t tx_pri_core;
 	uint8_t worker_req_core;
 	uint8_t worker_pri_core;
-
+	uint8_t rx_core;
 	uint8_t rx_pthresh; /**< Ring prefetch threshold. */
 	uint8_t rx_hthresh; /**< Ring host threshold. */
 	uint8_t rx_wthresh; /**< Ring writeback threshold. */
+
 	uint8_t tx_pthresh; /**< Ring prefetch threshold. */
 	uint8_t tx_hthresh; /**< Ring host threshold. */
 	uint8_t tx_wthresh; /**< Ring writeback threshold. */
@@ -100,34 +78,35 @@ struct queues_conf {
 	 */
 	uint32_t counter;
 
-	int socket;
+	int32_t socket;
 	uint32_t rate;
 
 	uint32_t mtu;
 	uint32_t frame_overhead;
 
-	uint16_t queue_size;
-
 	/* Token bucket. */
 	uint64_t tb_time;
+
 	uint32_t tb_period;
 	uint32_t tb_credits_per_period;
+
 	uint32_t tb_size;
 	uint32_t tb_credits;
-
-	unsigned int ring_size;
 
 	/* Maximum number of packets read from device at once. */
 	uint16_t rx_burst_size;
 	/* Maximum number of packets written to/read from an RX ring. */
-	uint16_t ring_burst_size;
+	uint16_t qos_enqueue_size;
 	/* Maximum number of packets written to/read from a TX ring. */
-	uint16_t qos_burst_size;
+	uint16_t qos_dequeue_size;
 	/* Maximum number of packets written device at once. */
 	uint16_t tx_burst_size;
 
+	uint16_t rx_ring_size;
+	uint16_t tx_ring_size;
 	uint16_t rx_queue;
 	uint16_t tx_queue;
+
 	uint8_t rx_port;
 	uint8_t tx_port;
 };

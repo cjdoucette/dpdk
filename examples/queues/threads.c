@@ -44,6 +44,8 @@
 
 #include "main.h"
 
+#define BURST_TX_DRAIN_US 100
+
 static inline int
 get_pkt_sched(struct rte_mbuf *m, uint32_t *subport, uint32_t *queue)
 {
@@ -159,16 +161,17 @@ app_send_packets(struct queues_conf *conf, struct rte_mbuf **mbufs,
 void
 req_tx_thread(struct queues_conf *conf)
 {
-	struct rte_mbuf *mbufs[conf->qos_burst_size];
+	struct rte_mbuf *mbufs[conf->qos_dequeue_size];
 	int ret;
 	const uint64_t drain_tsc = (rte_get_tsc_hz() + US_PER_S - 1) /
 				   US_PER_S * BURST_TX_DRAIN_US;
 
 	while (1) {
 		ret = rte_ring_sc_dequeue_bulk(conf->tx_ring,
-			(void **)mbufs, conf->qos_burst_size);
+			(void **)mbufs, conf->qos_dequeue_size);
 		if (likely(ret == 0)) {
-			app_send_packets(conf, mbufs, conf->qos_burst_size);
+			/* XXX Shouldn't we send as many as we dequeued? */
+			app_send_packets(conf, mbufs, conf->qos_dequeue_size);
 			conf->counter = 0; /* reset empty read loop counter */
 		}
 
@@ -190,16 +193,17 @@ req_tx_thread(struct queues_conf *conf)
 void
 pri_tx_thread(struct queues_conf *conf)
 {
-	struct rte_mbuf *mbufs[conf->qos_burst_size];
+	struct rte_mbuf *mbufs[conf->qos_dequeue_size];
 	int ret;
 	const uint64_t drain_tsc = (rte_get_tsc_hz() + US_PER_S - 1) /
 				   US_PER_S * BURST_TX_DRAIN_US;
 
 	while (1) {
 		ret = rte_ring_sc_dequeue_bulk(conf->tx_ring,
-			(void **)mbufs, conf->qos_burst_size);
+			(void **)mbufs, conf->qos_dequeue_size);
 		if (likely(ret == 0)) {
-			app_send_packets(conf, mbufs, conf->qos_burst_size);
+			/* XXX Shouldn't we send as many as we dequeued? */
+			app_send_packets(conf, mbufs, conf->qos_dequeue_size);
 			conf->counter = 0; /* reset empty read loop counter */
 		}
 
@@ -210,7 +214,6 @@ pri_tx_thread(struct queues_conf *conf)
 			/* Check if there are packets left to be transmitted. */
 			if (conf->n_mbufs != 0) {
 				app_send_burst(conf);
-
 				conf->n_mbufs = 0;
 			}
 			conf->counter = 0;
@@ -235,19 +238,19 @@ req_dequeue(__attribute__((unused)) struct rte_mbuf **mbufs,
 void
 req_thread(struct queues_conf *conf)
 {
-	struct rte_mbuf *mbufs[conf->ring_burst_size];
+	struct rte_mbuf *mbufs[conf->qos_enqueue_size];
 
 	while (1) {
 		uint32_t nb_pkt;
 		int ret;
 
 		ret = rte_ring_sc_dequeue_bulk(conf->rx_ring,
-			(void **)mbufs, conf->ring_burst_size);
+			(void **)mbufs, conf->qos_enqueue_size);
 		if (likely(ret == 0))
 			/* XXX Catch return value and maintain stats. */
-			req_enqueue(mbufs, conf->ring_burst_size);
+			req_enqueue(mbufs, conf->qos_enqueue_size);
 
-		nb_pkt = req_dequeue(mbufs, conf->qos_burst_size);
+		nb_pkt = req_dequeue(mbufs, conf->qos_dequeue_size);
 		if (likely(nb_pkt > 0))
 			while (rte_ring_sp_enqueue_bulk(conf->tx_ring,
 				(void **)mbufs, nb_pkt) != 0);
@@ -271,19 +274,19 @@ pri_dequeue(__attribute__((unused)) struct rte_mbuf **mbufs,
 void
 pri_thread(struct queues_conf *conf)
 {
-	struct rte_mbuf *mbufs[conf->ring_burst_size];
+	struct rte_mbuf *mbufs[conf->qos_enqueue_size];
 
 	while (1) {
 		uint32_t nb_pkt;
 		int ret;
 
 		ret = rte_ring_sc_dequeue_bulk(conf->rx_ring,
-			(void **)mbufs, conf->ring_burst_size);
+			(void **)mbufs, conf->qos_enqueue_size);
 		if (likely(ret == 0))
 			/* XXX Catch return value and maintain stats. */
-			pri_enqueue(mbufs, conf->ring_burst_size);
+			pri_enqueue(mbufs, conf->qos_enqueue_size);
 
-		nb_pkt = pri_dequeue(mbufs, conf->qos_burst_size);
+		nb_pkt = pri_dequeue(mbufs, conf->qos_dequeue_size);
 		if (likely(nb_pkt > 0))
 			while (rte_ring_sp_enqueue_bulk(conf->tx_ring,
 				(void **)mbufs, nb_pkt) != 0);
