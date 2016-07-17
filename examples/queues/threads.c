@@ -31,16 +31,8 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <stdint.h>
-
-#include <rte_log.h>
-#include <rte_mbuf.h>
-#include <rte_malloc.h>
 #include <rte_cycles.h>
 #include <rte_ethdev.h>
-#include <rte_memcpy.h>
-#include <rte_byteorder.h>
-#include <rte_branch_prediction.h>
 
 #include "main.h"
 

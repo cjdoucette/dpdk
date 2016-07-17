@@ -31,19 +31,10 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <stdint.h>
-#include <memory.h>
-#include <unistd.h>
-
-#include <rte_log.h>
-#include <rte_mbuf.h>
-#include <rte_debug.h>
 #include <rte_ethdev.h>
-#include <rte_mempool.h>
 #include <rte_malloc.h>
 #include <rte_sched.h>
 #include <rte_cycles.h>
-#include <rte_string_fns.h>
 
 #include "main.h"
 
@@ -74,7 +65,7 @@
 #define WORKER_PRI_CORE 1
 #define RX_CORE 0
 
-#define NB_MBUF (2 * 1024)
+#define NB_MBUF	(2 * 1024)
 
 #define RX_PTHRESH 8 /* Default values of RX prefetch threshold reg. */
 #define RX_HTHRESH 8 /* Default values of RX host threshold reg. */
@@ -216,7 +207,7 @@ app_conf_init(struct app_conf *app_conf, uint32_t rx_burst_size,
 	app_conf->mbuf_pool_size = NB_MBUF;
 	snprintf(pool_name, MAX_NAME_LEN, "mbuf_pool");
 	app_conf->mbuf_pool = rte_pktmbuf_pool_create(pool_name,
-		app_conf->mbuf_pool_size, rx_burst_size * 4, 0,
+		app_conf->mbuf_pool_size, 4 * rx_burst_size, 0,
 		RTE_MBUF_DEFAULT_BUF_SIZE,
 		rte_eth_dev_socket_id(rx_port));
 	if (app_conf->mbuf_pool == NULL)
@@ -257,6 +248,11 @@ queue_conf_init(struct queues_conf *conf, const char *name, unsigned rx_core)
 	conf->tx_ring = rte_ring_create(ring_name, conf->tx_ring_size,
 		socket, RING_F_SP_ENQ | RING_F_SC_DEQ);
 
+	conf->rx_burst_size = MAX_PKT_RX_BURST;
+	conf->qos_enqueue_size = QOS_PKT_ENQUEUE;
+	conf->qos_dequeue_size = QOS_PKT_DEQUEUE;
+	conf->tx_burst_size = MAX_PKT_TX_BURST;
+
 	conf->m_table = rte_malloc(name,
 		sizeof(struct rte_mbuf *) * conf->tx_burst_size,
 		RTE_CACHE_LINE_SIZE);
@@ -277,11 +273,6 @@ queue_conf_init(struct queues_conf *conf, const char *name, unsigned rx_core)
 	conf->tb_credits_per_period = 0; // XXX
 	conf->tb_size = 0; // XXX
 	conf->tb_credits = 0; // XXX
-
-	conf->rx_burst_size = MAX_PKT_RX_BURST;
-	conf->qos_enqueue_size = QOS_PKT_ENQUEUE;
-	conf->qos_dequeue_size = QOS_PKT_DEQUEUE;
-	conf->tx_burst_size = MAX_PKT_TX_BURST;
 
 	/* XXX These could change once we add more queues. */
 	conf->rx_queue = RX_QUEUE;

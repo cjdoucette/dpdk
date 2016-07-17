@@ -31,13 +31,8 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <unistd.h>
-#include <stdint.h>
-
-#include <rte_log.h>
 #include <rte_mbuf.h>
 #include <rte_malloc.h>
-#include <rte_ethdev.h>
 
 #include "main.h"
 
