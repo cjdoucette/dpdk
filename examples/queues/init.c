@@ -33,47 +33,9 @@
 
 #include <rte_ethdev.h>
 #include <rte_malloc.h>
-#include <rte_sched.h>
 #include <rte_cycles.h>
 
 #include "main.h"
-
-/* Configurable number of RX/TX ring descriptors. */
-#define RX_DESC_DEFAULT 128
-#define TX_DESC_DEFAULT 256
-
-#define RX_PORT		0
-#define TX_PORT		0
-#define RX_QUEUE	0
-#define TX_QUEUE	0
-
-#define RX_RING_SIZE	(8 * 1024)
-#define TX_RING_SIZE	(8 * 1024)
-
-#define QUEUES_MTU (6 + 6 + 4 + 4 + 2 + 1500)
-#define QUEUES_FRAME_OVERHEAD	RTE_SCHED_FRAME_OVERHEAD_DEFAULT
-
-/* Number of packets to read and write from and to the NIC. */
-#define MAX_PKT_RX_BURST 64
-#define MAX_PKT_TX_BURST 64
-#define QOS_PKT_ENQUEUE 64
-#define QOS_PKT_DEQUEUE 32
-
-#define TX_REQ_CORE 0
-#define TX_PRI_CORE 0
-#define WORKER_REQ_CORE 1
-#define WORKER_PRI_CORE 1
-#define RX_CORE 0
-
-#define NB_MBUF	(2 * 1024)
-
-#define RX_PTHRESH 8 /* Default values of RX prefetch threshold reg. */
-#define RX_HTHRESH 8 /* Default values of RX host threshold reg. */
-#define RX_WTHRESH 4 /* Default values of RX write-back threshold reg. */
-
-#define TX_PTHRESH 36 /* Default values of TX prefetch threshold reg. */
-#define TX_HTHRESH 0  /* Default values of TX host threshold reg. */
-#define TX_WTHRESH 0  /* Default values of TX write-back threshold reg. */
 
 #define MAX_NAME_LEN 32
 #define SYS_CPU_DIR "/sys/devices/system/cpu/cpu%u/topology/"
@@ -204,7 +166,6 @@ app_conf_init(struct app_conf *app_conf, uint32_t rx_burst_size,
 	 * XXX When we use multiple queues, we need multiple mbuf pools.
 	 * For now, just use one for both requests and priority packets.
 	 */
-	app_conf->mbuf_pool_size = NB_MBUF;
 	snprintf(pool_name, MAX_NAME_LEN, "mbuf_pool");
 	app_conf->mbuf_pool = rte_pktmbuf_pool_create(pool_name,
 		app_conf->mbuf_pool_size, 4 * rx_burst_size, 0,
@@ -212,23 +173,6 @@ app_conf_init(struct app_conf *app_conf, uint32_t rx_burst_size,
 		rte_eth_dev_socket_id(rx_port));
 	if (app_conf->mbuf_pool == NULL)
 		rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
-
-	app_conf->rx_queue_size = RX_DESC_DEFAULT;
-	app_conf->tx_queue_size = TX_DESC_DEFAULT;
-
-	app_conf->tx_req_core = TX_REQ_CORE;
-	app_conf->tx_pri_core = TX_PRI_CORE;
-	app_conf->worker_req_core = WORKER_REQ_CORE;
-	app_conf->worker_pri_core = WORKER_PRI_CORE;
-	app_conf->rx_core = RX_CORE;
-
-	app_conf->rx_pthresh = RX_PTHRESH;
-	app_conf->rx_hthresh = RX_HTHRESH;
-	app_conf->rx_wthresh = RX_WTHRESH;
-
-	app_conf->tx_pthresh = TX_PTHRESH;
-	app_conf->tx_hthresh = TX_HTHRESH;
-	app_conf->tx_wthresh = TX_WTHRESH;
 }
 
 static void
@@ -236,9 +180,6 @@ queue_conf_init(struct queues_conf *conf, const char *name, unsigned rx_core)
 {
 	char ring_name[MAX_NAME_LEN];
 	uint32_t socket = rte_lcore_to_socket_id(rx_core);
-
-	conf->rx_ring_size = RX_RING_SIZE;
-	conf->tx_ring_size = TX_RING_SIZE;
 
 	snprintf(ring_name, MAX_NAME_LEN, "ring-%s-rx", name);
 	conf->rx_ring = rte_ring_create(ring_name, conf->rx_ring_size,
@@ -248,42 +189,20 @@ queue_conf_init(struct queues_conf *conf, const char *name, unsigned rx_core)
 	conf->tx_ring = rte_ring_create(ring_name, conf->tx_ring_size,
 		socket, RING_F_SP_ENQ | RING_F_SC_DEQ);
 
-	conf->rx_burst_size = MAX_PKT_RX_BURST;
-	conf->qos_enqueue_size = QOS_PKT_ENQUEUE;
-	conf->qos_dequeue_size = QOS_PKT_DEQUEUE;
-	conf->tx_burst_size = MAX_PKT_TX_BURST;
-
 	conf->m_table = rte_malloc(name,
 		sizeof(struct rte_mbuf *) * conf->tx_burst_size,
 		RTE_CACHE_LINE_SIZE);
 	if (conf->m_table == NULL)
 		rte_panic("cannot allocate memory buffer for %s\n", name);
 
-	conf->n_mbufs = 0;
-
-	conf->counter = 0;
 	conf->socket = socket;
 
-	conf->rate = 0; // XXX computed?
-	conf->mtu = QUEUES_MTU;
-	conf->frame_overhead = QUEUES_FRAME_OVERHEAD;
-
-	conf->tb_time = 0; // XXX
-	conf->tb_period = 0; // XXX
-	conf->tb_credits_per_period = 0; // XXX
-	conf->tb_size = 0; // XXX
-	conf->tb_credits = 0; // XXX
-
-	/* XXX These could change once we add more queues. */
-	conf->rx_queue = RX_QUEUE;
-	conf->tx_queue = TX_QUEUE;
+	/* XXX Change queue identifier once we add more queues. */
 
 	/*
-	 * XXX TX should change according to configuration, and RX should
+	 * XXX TX port should change according to configuration, and RX should
 	 * change according to port in main.c.
 	 */
-	conf->rx_port = RX_PORT;
-	conf->tx_port = TX_PORT;
 }
 
 int queues_init(struct app_conf *app_conf, struct queues_conf *req_conf,
@@ -292,11 +211,11 @@ int queues_init(struct app_conf *app_conf, struct queues_conf *req_conf,
 	if (rte_eth_dev_count() == 0)
 		rte_exit(EXIT_FAILURE, "No Ethernet port - bye\n");
 
-	/* XXX Separate mbuf pool and remove these parameters. */
-	app_conf_init(app_conf, MAX_PKT_RX_BURST, RX_PORT);
-
 	queue_conf_init(req_conf, "req", app_conf->rx_core);
 	queue_conf_init(pri_conf, "pri", app_conf->rx_core);
+
+	/* XXX Separate mbuf pool and remove these parameters. */
+	app_conf_init(app_conf, req_conf->rx_burst_size, req_conf->rx_port);
 
 	/* XXX When we have multiple queues, update this. */
 	init_port(app_conf, req_conf->rx_port, app_conf->mbuf_pool);
