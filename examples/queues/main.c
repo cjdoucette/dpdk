@@ -37,104 +37,52 @@
 
 #include "main.h"
 
-#define RX_PORT		0
-#define TX_PORT		0
-#define RX_QUEUE	0
-#define TX_QUEUE	0
+#define	DEFAULT_TB_PERIOD		10
+#define	DEFAULT_TB_CREDITS_PER_PERIOD	500
+#define DEFAULT_TB_SIZE			5000
 
-#define RX_RING_SIZE	(8 * 1024)
-#define TX_RING_SIZE	(8 * 1024)
+#define DEFAULT_QUEUE_SIZE	256
+#define NUM_QUEUES_REQ		1
+#define NUM_QUEUES_DST		4096
 
 #define QUEUES_MTU	(6 + 6 + 4 + 4 + 2 + 1500)
+
+static struct queues_conf req_conf = {
+	.tb_period = DEFAULT_TB_PERIOD,
+	.tb_credits_per_period = DEFAULT_TB_CREDITS_PER_PERIOD,
+	.tb_size = DEFAULT_TB_SIZE,
+
+	.mtu = QUEUES_MTU,
+
+	.queue_size = DEFAULT_QUEUE_SIZE,
+	.num_queues = NUM_QUEUES_REQ,
+};
+
+static struct queues_conf dst_conf = {
+	.tb_period = DEFAULT_TB_PERIOD,
+	.tb_credits_per_period = DEFAULT_TB_CREDITS_PER_PERIOD,
+	.tb_size = DEFAULT_TB_SIZE,
+
+	.mtu = QUEUES_MTU,
+
+	.queue_size = DEFAULT_QUEUE_SIZE,
+	.num_queues = NUM_QUEUES_DST,
+};
+
+#define NB_MBUF			(2 * 1024)
 #define QUEUES_FRAME_OVERHEAD	RTE_SCHED_FRAME_OVERHEAD_DEFAULT
 
 /* Number of packets to read and write from and to the NIC. */
 #define MAX_PKT_RX_BURST	64
+#define QOS_PKT_ENQUEUE		64
+#define QOS_PKT_DEQUEUE		32
 #define MAX_PKT_TX_BURST	64
-#define QOS_PKT_ENQUEUE	64
-#define QOS_PKT_DEQUEUE	32
 
-static struct queues_conf req_conf = {
-	/* These structures will be set by queue_conf_init(). */
-	.rx_ring = NULL,
-	.tx_ring = NULL,	
-	.m_table = NULL,
+#define RX_RING_SIZE	(8 * 1024)
+#define TX_RING_SIZE	(8 * 1024)
 
-	.n_mbufs = 0,
-	.counter = 0,
-
-	/* The socket will be set by queue_conf_init(). */
-	.socket = 0,
-
-	.rate = 0, // XXX
-	.mtu = QUEUES_MTU,
-	.frame_overhead = QUEUES_FRAME_OVERHEAD,
-
-	.tb_time = 0, // XXX
-	.tb_period = 0,
-	.tb_credits_per_period = 0,
-	.tb_size = 0,
-	.tb_credits = 0,
-
-	.rx_burst_size = MAX_PKT_RX_BURST,
-	.qos_enqueue_size = QOS_PKT_ENQUEUE,
-	.qos_dequeue_size = QOS_PKT_DEQUEUE,
-	.tx_burst_size = MAX_PKT_TX_BURST,
-
-	.rx_ring_size = RX_RING_SIZE,
-	.tx_ring_size = TX_RING_SIZE,
-	.rx_queue = RX_QUEUE,
-	.tx_queue = TX_QUEUE,
-	.rx_port = RX_PORT,
-	.tx_port = TX_PORT,
-};
-
-static struct queues_conf pri_conf = {
-	/* These structures will be set by queue_conf_init(). */
-	.rx_ring = NULL,
-	.tx_ring = NULL,	
-	.m_table = NULL,
-
-	.n_mbufs = 0,
-	.counter = 0,
-
-	/* The socket will be set by queue_conf_init(). */
-	.socket = 0,
-
-	.rate = 0, // XXX
-	.mtu = QUEUES_MTU,
-	.frame_overhead = QUEUES_FRAME_OVERHEAD,
-
-	.tb_time = 0, // XXX
-	.tb_period = 0,
-	.tb_credits_per_period = 0,
-	.tb_size = 0,
-	.tb_credits = 0,
-
-	.rx_burst_size = MAX_PKT_RX_BURST,
-	.qos_enqueue_size = QOS_PKT_ENQUEUE,
-	.qos_dequeue_size = QOS_PKT_DEQUEUE,
-	.tx_burst_size = MAX_PKT_TX_BURST,
-
-	.rx_ring_size = RX_RING_SIZE,
-	.tx_ring_size = TX_RING_SIZE,
-	.rx_queue = RX_QUEUE,
-	.tx_queue = TX_QUEUE,
-	.rx_port = RX_PORT,
-	.tx_port = TX_PORT,
-};
-
-/* Configurable number of RX/TX ring descriptors. */
 #define RX_DESC_DEFAULT 128
 #define TX_DESC_DEFAULT 256
-
-#define TX_REQ_CORE 0
-#define TX_PRI_CORE 0
-#define WORKER_REQ_CORE 1
-#define WORKER_PRI_CORE 1
-#define RX_CORE 0
-
-#define NB_MBUF	(2 * 1024)
 
 #define RX_PTHRESH 8 /* Default values of RX prefetch threshold reg. */
 #define RX_HTHRESH 8 /* Default values of RX host threshold reg. */
@@ -144,19 +92,31 @@ static struct queues_conf pri_conf = {
 #define TX_HTHRESH 0  /* Default values of TX host threshold reg. */
 #define TX_WTHRESH 0  /* Default values of TX write-back threshold reg. */
 
-static struct app_conf app_conf = {
-	/* Mbuf pool will be initialized by app_conf_init(). */
-	.mbuf_pool = NULL,
+#define RX_PORT		0
+#define TX_PORT		0
+#define RX_QUEUE	0
+#define TX_QUEUE	0
 
+#define TX_REQ_CORE	0
+#define TX_DST_CORE	0
+#define WK_REQ_CORE	1
+#define WK_DST_CORE	1
+#define RX_CORE		0
+
+static struct gk_conf gk_conf = {
 	.mbuf_pool_size = NB_MBUF,
+	.frame_overhead = QUEUES_FRAME_OVERHEAD,
+
+	.rx_burst_size = MAX_PKT_RX_BURST,
+	.qos_enqueue_size = QOS_PKT_ENQUEUE,
+	.qos_dequeue_size = QOS_PKT_DEQUEUE,
+	.tx_burst_size = MAX_PKT_TX_BURST,
+
+	.rx_ring_size = RX_RING_SIZE,
+	.tx_ring_size = TX_RING_SIZE,
+
 	.rx_queue_size = RX_DESC_DEFAULT,
 	.tx_queue_size = TX_DESC_DEFAULT,
-
-	.tx_req_core = TX_REQ_CORE,
-	.tx_pri_core = TX_PRI_CORE,
-	.worker_req_core = WORKER_REQ_CORE,
-	.worker_pri_core = WORKER_PRI_CORE,
-	.rx_core = RX_CORE,
 
 	.rx_pthresh = RX_PTHRESH,
 	.rx_hthresh = RX_HTHRESH,
@@ -165,50 +125,69 @@ static struct app_conf app_conf = {
 	.tx_pthresh = TX_PTHRESH,
 	.tx_hthresh = TX_HTHRESH,
 	.tx_wthresh = TX_WTHRESH,
+
+	.rx_port = RX_PORT,
+	.tx_port = TX_PORT,
+	.rx_queue = RX_QUEUE,
+	.tx_queue = TX_QUEUE,
+
+	.tx_req_core = TX_REQ_CORE,
+	.tx_dst_core = TX_DST_CORE,
+	.wk_req_core = WK_REQ_CORE,
+	.wk_dst_core = WK_DST_CORE,
+	.rx_core = RX_CORE,
 };
+
+static struct gk_data gk;
+static struct dst_queues *dst_queues;
+static struct req_queue *req_queue;
 
 static int
 main_loop(void *arg)
 {
-	struct app_conf *app_conf = (struct app_conf *)arg;
+	struct gk_data *gk = (struct gk_data *)arg;
 	uint32_t lcore_id = rte_lcore_id();
 
-	if (lcore_id == app_conf->rx_core) {
+	if (lcore_id == gk->rx_core) {
 		RTE_LOG(INFO, APP, "lcoreid %u reading port %"PRIu8"\n",
-			lcore_id, req_conf.rx_port);
+			lcore_id, gk->rx_port);
 		/*
 		 * XXX Assume we're using the requests configuration
 		 * until we add more threads or more queues.
 		 */
-		rx_thread(&req_conf);
+		rx_thread(gk);
 	}
-	if (lcore_id == app_conf->worker_req_core) {
+	if (lcore_id == gk->wk_req_core) {
 		RTE_LOG(INFO, APP, "lcoreid %u req scheduling\n", lcore_id);
-		req_thread(&req_conf);
+		req_thread(gk, req_queue);
 	}
-	if (lcore_id == app_conf->worker_pri_core) {
-		RTE_LOG(INFO, APP, "lcoreid %u pri scheduling\n", lcore_id);
-		pri_thread(&pri_conf);
+	if (lcore_id == gk->wk_dst_core) {
+		RTE_LOG(INFO, APP, "lcoreid %u dst scheduling\n", lcore_id);
+		dst_thread(gk, dst_queues);
 	}
-	if (lcore_id == app_conf->tx_req_core) {
-		req_conf.m_table = rte_malloc("req_table",
-			sizeof(struct rte_mbuf *) * req_conf.tx_burst_size,
+	if (lcore_id == gk->tx_req_core) {
+#if 0
+		gk->req_m_table = rte_malloc("req_table",
+			sizeof(struct rte_mbuf *) * gk->tx_burst_size,
 			RTE_CACHE_LINE_SIZE);
-		if (req_conf.m_table == NULL)
+		if (gk->req_m_table == NULL)
 			rte_panic("unable to allocate req memory buffer\n");
 		RTE_LOG(INFO, APP, "lcoreid %u req writing port %"PRIu8"\n",
-			lcore_id, req_conf.tx_port);
-		req_tx_thread(&req_conf);
+			lcore_id, gk->tx_port);
+#endif
+		req_tx_thread(gk, req_queue);
 	}
-	if (lcore_id == app_conf->tx_pri_core) {
-		pri_conf.m_table = rte_malloc("pri_table",
-			sizeof(struct rte_mbuf *) * pri_conf.tx_burst_size,
+	if (lcore_id == gk->tx_dst_core) {
+#if 0
+		gk->dst_m_table = rte_malloc("dst_table",
+			sizeof(struct rte_mbuf *) * gk->tx_burst_size,
 			RTE_CACHE_LINE_SIZE);
-		if (pri_conf.m_table == NULL)
-			rte_panic("unable to allocate pri memory buffer\n");
-		RTE_LOG(INFO, APP, "lcoreid %u pri writing port %"PRIu8"\n",
-			lcore_id, pri_conf.tx_port);
-		pri_tx_thread(&pri_conf);
+		if (gk->dst_m_table == NULL)
+			rte_panic("unable to allocate dst memory buffer\n");
+		RTE_LOG(INFO, APP, "lcoreid %u dst writing port %"PRIu8"\n",
+			lcore_id, gk->tx_port);
+#endif
+		dst_tx_thread(gk, dst_queues);
 	}
 
 	RTE_LOG(INFO, APP, "lcore %u has nothing to do\n", lcore_id);
@@ -227,10 +206,14 @@ main(int argc, char **argv)
 	argc -= ret;
 	argv += ret;
 
-	ret = queues_init(&app_conf, &req_conf, &pri_conf);
+	ret = gk_init(&gk_conf, &gk, MAX_PKT_RX_BURST);
 	if (ret < 0)
 		return -1;
 
-	rte_eal_mp_remote_launch(main_loop, &app_conf, CALL_MASTER);
+	ret = queues_init(&gk, &req_conf, &dst_conf, &req_queue, &dst_queues);
+	if (ret < 0)
+		return -1;
+
+	rte_eal_mp_remote_launch(main_loop, &gk, CALL_MASTER);
 	return 0;
 }
