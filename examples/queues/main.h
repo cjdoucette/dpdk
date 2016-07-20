@@ -39,6 +39,8 @@
 
 #define RTE_LOGTYPE_APP RTE_LOGTYPE_USER1
 
+#define USE_TX_THREADS	1
+
 #ifndef APP_MAX_LCORE
 #define APP_MAX_LCORE 64
 #endif
@@ -151,7 +153,7 @@ struct queues_conf {
 	uint32_t mtu;
 
 	/* Queue base calculation */
-	uint16_t queue_size;
+	uint16_t qsize;
 	uint16_t num_queues;
 };
 
@@ -163,7 +165,7 @@ struct gk_queue {
 struct dst_queues {
 	uint64_t rate;
 	uint32_t mtu;
-	uint16_t queue_size;
+	uint16_t qsize;
 	uint16_t num_queues;
 
 	/* Token bucket. */
@@ -195,7 +197,7 @@ struct dst_queues {
 struct req_queue {
 	uint64_t rate;
 	uint32_t mtu;
-	uint16_t queue_size;
+	uint16_t qsize;
 	uint16_t num_queues;
 
 	/* Token bucket. */

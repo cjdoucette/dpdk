@@ -54,7 +54,7 @@ static struct queues_conf req_conf = {
 
 	.mtu = QUEUES_MTU,
 
-	.queue_size = DEFAULT_QUEUE_SIZE,
+	.qsize = DEFAULT_QUEUE_SIZE,
 	.num_queues = NUM_QUEUES_REQ,
 };
 
@@ -65,7 +65,7 @@ static struct queues_conf dst_conf = {
 
 	.mtu = QUEUES_MTU,
 
-	.queue_size = DEFAULT_QUEUE_SIZE,
+	.qsize = DEFAULT_QUEUE_SIZE,
 	.num_queues = NUM_QUEUES_DST,
 };
 
@@ -151,10 +151,6 @@ main_loop(void *arg)
 	if (lcore_id == gk->rx_core) {
 		RTE_LOG(INFO, APP, "lcoreid %u reading port %"PRIu8"\n",
 			lcore_id, gk->rx_port);
-		/*
-		 * XXX Assume we're using the requests configuration
-		 * until we add more threads or more queues.
-		 */
 		rx_thread(gk);
 	}
 	if (lcore_id == gk->wk_req_core) {
@@ -165,6 +161,7 @@ main_loop(void *arg)
 		RTE_LOG(INFO, APP, "lcoreid %u dst scheduling\n", lcore_id);
 		dst_thread(gk, dst_queues);
 	}
+#if USE_TX_THREADS
 	if (lcore_id == gk->tx_req_core) {
 #if 0
 		gk->req_m_table = rte_malloc("req_table",
@@ -189,6 +186,7 @@ main_loop(void *arg)
 #endif
 		dst_tx_thread(gk, dst_queues);
 	}
+#endif
 
 	RTE_LOG(INFO, APP, "lcore %u has nothing to do\n", lcore_id);
 	return 0;

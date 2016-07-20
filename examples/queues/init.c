@@ -181,7 +181,7 @@ dst_queues_offset(struct queues_conf *conf, enum dst_queues_pos pos)
 	uint32_t n_queues = conf->num_queues;
 	uint32_t size_queue_meta = n_queues * sizeof(struct gk_queue);
 	uint32_t size_bmp_array = rte_bitmap_get_memory_footprint(n_queues);
-	uint32_t size_queue = conf->queue_size * sizeof(struct rte_mbuf *);
+	uint32_t size_queue = conf->qsize * sizeof(struct rte_mbuf *);
 	uint32_t size_queue_array = n_queues * size_queue;
 
 	/*
@@ -231,7 +231,7 @@ dst_queues_init(struct gk_data *gk, struct queues_conf *conf)
 	/* User parameters. */
 	dst_queues->rate = 0;
 	dst_queues->mtu = conf->mtu;
-	dst_queues->queue_size = conf->queue_size;
+	dst_queues->qsize = conf->qsize;
 	dst_queues->num_queues = conf->num_queues;
 
 	/* Token bucket. */
@@ -288,7 +288,7 @@ req_queue_offset(struct queues_conf *conf, enum req_queue_pos pos)
 	uint32_t n_queues = conf->num_queues;
 	uint32_t size_queue_meta = n_queues * sizeof(struct gk_queue);
 	uint32_t size_bmp_array = rte_bitmap_get_memory_footprint(n_queues);
-	uint32_t size_queue = conf->queue_size * sizeof(struct rte_mbuf *);
+	uint32_t size_queue = conf->qsize * sizeof(struct rte_mbuf *);
 	uint32_t size_queue_array = n_queues * size_queue;
 
 	/*
@@ -340,7 +340,7 @@ req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 	/* User parameters. */
 	req_queue->rate = 0;
 	req_queue->mtu = conf->mtu;
-	req_queue->queue_size = conf->queue_size;
+	req_queue->qsize = conf->qsize;
 	req_queue->num_queues = conf->num_queues;
 
 	/* Token bucket. */
