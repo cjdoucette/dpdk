@@ -231,8 +231,10 @@ dst_queues_init(struct gk_data *gk, struct queues_conf *conf)
 	/* User parameters. */
 	dst_queues->rate = 0;
 	dst_queues->mtu = conf->mtu;
+	dst_queues->frame_overhead = conf->frame_overhead;
 	dst_queues->qsize = conf->qsize;
 	dst_queues->num_queues = conf->num_queues;
+	dst_queues->cur_queue = 0;
 
 	/* Token bucket. */
 	dst_queues->tb_time = 0;
@@ -474,8 +476,6 @@ gk_init(struct gk_conf *gk_conf, struct gk_data *gk, unsigned rx_burst_size)
 	gk->rx_queue = gk_conf->rx_queue;
 	gk->tx_queue = gk_conf->tx_queue;
 
-	gk->tx_req_core = gk_conf->tx_req_core;
-	gk->tx_dst_core = gk_conf->tx_dst_core;
 	gk->wk_req_core = gk_conf->wk_req_core;
 	gk->wk_dst_core = gk_conf->wk_dst_core;
 	gk->rx_core = gk_conf->rx_core;

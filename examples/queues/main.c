@@ -36,7 +36,6 @@
 #include <rte_sched.h>
 
 #include "main.h"
-
 #define	DEFAULT_TB_PERIOD		10
 #define	DEFAULT_TB_CREDITS_PER_PERIOD	500
 #define DEFAULT_TB_SIZE			5000
@@ -46,6 +45,7 @@
 #define NUM_QUEUES_DST		4096
 
 #define QUEUES_MTU	(6 + 6 + 4 + 4 + 2 + 1500)
+#define QUEUES_FRAME_OVERHEAD	RTE_SCHED_FRAME_OVERHEAD_DEFAULT
 
 static struct queues_conf req_conf = {
 	.tb_period = DEFAULT_TB_PERIOD,
@@ -53,6 +53,7 @@ static struct queues_conf req_conf = {
 	.tb_size = DEFAULT_TB_SIZE,
 
 	.mtu = QUEUES_MTU,
+	.frame_overhead = QUEUES_FRAME_OVERHEAD,
 
 	.qsize = DEFAULT_QUEUE_SIZE,
 	.num_queues = NUM_QUEUES_REQ,
@@ -64,13 +65,13 @@ static struct queues_conf dst_conf = {
 	.tb_size = DEFAULT_TB_SIZE,
 
 	.mtu = QUEUES_MTU,
+	.frame_overhead = QUEUES_FRAME_OVERHEAD,
 
 	.qsize = DEFAULT_QUEUE_SIZE,
 	.num_queues = NUM_QUEUES_DST,
 };
 
 #define NB_MBUF			(2 * 1024)
-#define QUEUES_FRAME_OVERHEAD	RTE_SCHED_FRAME_OVERHEAD_DEFAULT
 
 /* Number of packets to read and write from and to the NIC. */
 #define MAX_PKT_RX_BURST	64
@@ -97,11 +98,9 @@ static struct queues_conf dst_conf = {
 #define RX_QUEUE	0
 #define TX_QUEUE	0
 
-#define TX_REQ_CORE	0
-#define TX_DST_CORE	0
-#define WK_REQ_CORE	1
+#define WK_REQ_CORE	0
 #define WK_DST_CORE	1
-#define RX_CORE		0
+#define RX_CORE		2
 
 static struct gk_conf gk_conf = {
 	.mbuf_pool_size = NB_MBUF,
@@ -131,8 +130,6 @@ static struct gk_conf gk_conf = {
 	.rx_queue = RX_QUEUE,
 	.tx_queue = TX_QUEUE,
 
-	.tx_req_core = TX_REQ_CORE,
-	.tx_dst_core = TX_DST_CORE,
 	.wk_req_core = WK_REQ_CORE,
 	.wk_dst_core = WK_DST_CORE,
 	.rx_core = RX_CORE,
@@ -161,32 +158,6 @@ main_loop(void *arg)
 		RTE_LOG(INFO, APP, "lcoreid %u dst scheduling\n", lcore_id);
 		dst_thread(gk, dst_queues);
 	}
-#if USE_TX_THREADS
-	if (lcore_id == gk->tx_req_core) {
-#if 0
-		gk->req_m_table = rte_malloc("req_table",
-			sizeof(struct rte_mbuf *) * gk->tx_burst_size,
-			RTE_CACHE_LINE_SIZE);
-		if (gk->req_m_table == NULL)
-			rte_panic("unable to allocate req memory buffer\n");
-		RTE_LOG(INFO, APP, "lcoreid %u req writing port %"PRIu8"\n",
-			lcore_id, gk->tx_port);
-#endif
-		req_tx_thread(gk, req_queue);
-	}
-	if (lcore_id == gk->tx_dst_core) {
-#if 0
-		gk->dst_m_table = rte_malloc("dst_table",
-			sizeof(struct rte_mbuf *) * gk->tx_burst_size,
-			RTE_CACHE_LINE_SIZE);
-		if (gk->dst_m_table == NULL)
-			rte_panic("unable to allocate dst memory buffer\n");
-		RTE_LOG(INFO, APP, "lcoreid %u dst writing port %"PRIu8"\n",
-			lcore_id, gk->tx_port);
-#endif
-		dst_tx_thread(gk, dst_queues);
-	}
-#endif
 
 	RTE_LOG(INFO, APP, "lcore %u has nothing to do\n", lcore_id);
 	return 0;

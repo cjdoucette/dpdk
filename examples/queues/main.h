@@ -101,8 +101,6 @@ struct gk_data {
 	uint16_t rx_queue;
 	uint16_t tx_queue;
 
-	uint8_t tx_req_core;
-	uint8_t tx_dst_core;
 	uint8_t wk_req_core;
 	uint8_t wk_dst_core;
 	uint8_t rx_core;
@@ -137,8 +135,6 @@ struct gk_conf {
 	uint16_t rx_queue;
 	uint16_t tx_queue;
 
-	uint8_t tx_req_core;
-	uint8_t tx_dst_core;
 	uint8_t wk_req_core;
 	uint8_t wk_dst_core;
 	uint8_t rx_core;
@@ -151,6 +147,7 @@ struct queues_conf {
 	uint32_t tb_size;
 
 	uint32_t mtu;
+	uint32_t frame_overhead;
 
 	/* Queue base calculation */
 	uint16_t qsize;
@@ -165,8 +162,10 @@ struct gk_queue {
 struct dst_queues {
 	uint64_t rate;
 	uint32_t mtu;
+	uint32_t frame_overhead;
 	uint16_t qsize;
 	uint16_t num_queues;
+	uint16_t cur_queue;
 
 	/* Token bucket. */
 	uint64_t tb_time;
@@ -184,13 +183,14 @@ struct dst_queues {
 	/* CPU cycles per byte */
 	struct rte_reciprocal inv_cycles_per_byte;
 
+	struct rte_bitmap *bmp;
+
 	struct rte_mbuf **pkts_out;
 	uint32_t n_pkts_out;
 
 	struct gk_queue *queue;
 	uint8_t *bmp_array;
 	struct rte_mbuf **queue_array;
-	struct rte_bitmap *bmp;
 	uint8_t memory[0] __rte_cache_aligned;
 } __rte_cache_aligned;
 
@@ -236,7 +236,5 @@ int queues_init(struct gk_data *gk, struct queues_conf *req_conf,
 void rx_thread(struct gk_data *gk);
 void req_thread(struct gk_data *gk, struct req_queue *req_queue);
 void dst_thread(struct gk_data *gk, struct dst_queues *dst_queues);
-void req_tx_thread(struct gk_data *gk, struct req_queue *req_queue);
-void dst_tx_thread(struct gk_data *gk, struct dst_queues *dst_queues);
 
 #endif /* _MAIN_H_ */

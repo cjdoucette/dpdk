@@ -77,127 +77,21 @@ get_pkt_sched(struct rte_mbuf *m, uint32_t *type, uint32_t *queue)
 }
 
 /*
- * Send the packet to an output interface
- * For performance reasons this function returns the number
- * of packets dropped, not sent, so 0 means that all packets
- * were sent successfully.
+ * Send the packets to an output interface.
  */
-#if 0
 static inline void
-app_send_burst(struct app_conf *app_conf, struct queues_conf *conf)
+send_burst(struct gk_data *gk, struct dst_queues *dst_queues)
 {
-	struct rte_mbuf **mbufs;
-	uint32_t n, ret;
-
-	mbufs = (struct rte_mbuf **)conf->m_table;
-	n = conf->n_mbufs;
+	uint16_t ret;
 
 	do {
-		ret = rte_eth_tx_burst(app_conf->tx_port, app_conf->tx_queue,
-			mbufs, (uint16_t)n);
+		ret = rte_eth_tx_burst(gk->tx_port, gk->tx_queue,
+			dst_queues->pkts_out, dst_queues->n_pkts_out);
 
-		/* we cannot drop the packets, so re-send */
-		/* update number of packets to be sent */
-		n -= ret;
-		mbufs = (struct rte_mbuf **)&mbufs[ret];
-	} while (n);
-}
-#endif
-
-#if 0
-/* Send the packet to an output interface */
-static void
-app_send_packets(struct app_conf *app_conf, struct queues_conf *conf,
-	struct rte_mbuf **mbufs, uint32_t nb_pkt)
-{
-	uint32_t i, len;
-
-	len = conf->n_mbufs;
-	for(i = 0; i < nb_pkt; i++) {
-		conf->m_table[len] = mbufs[i];
-		len++;
-		/* enough pkts to be sent */
-		if (unlikely(len == conf->tx_burst_size)) {
-			conf->n_mbufs = len;
-			app_send_burst(app_conf, conf);
-			len = 0;
-		}
-	}
-
-	conf->n_mbufs = len;
-}
-#endif
-
-void
-req_tx_thread(struct gk_data *gk,
-	__attribute__((unused)) struct req_queue *req_queue)
-{
-	struct rte_mbuf *mbufs[gk->qos_dequeue_size];
-	int ret;
-	const uint64_t drain_tsc = (rte_get_tsc_hz() + US_PER_S - 1) /
-		US_PER_S * BURST_TX_DRAIN_US;
-
-	while (1) {
-		ret = rte_ring_sc_dequeue_bulk(gk->req_tx_ring,
-			(void **)mbufs, gk->qos_dequeue_size);
-		if (likely(ret == 0)) {
-			/* XXX Shouldn't we send as many as we dequeued? */
-#if 0
-			req_send_packets(gk, req_queue, mbufs,
-				gk->qos_dequeue_size);
-#endif
-			gk->counter = 0; /* reset empty read loop counter */
-		}
-
-		gk->counter++;
-
-		/* Drain ring and TX queues after some timeout. */
-		if (unlikely(gk->counter > drain_tsc)) {
-			/* Check if there are packets left to be transmitted. */
-			if (gk->n_mbufs != 0) {
-#if 0
-				app_send_burst(gk, req_queue);
-#endif
-				gk->n_mbufs = 0;
-			}
-			gk->counter = 0;
-		}
-	}
-}
-
-void
-dst_tx_thread(struct gk_data *gk,
-	__attribute__((unused)) struct dst_queues *dst_queues)
-{
-	struct rte_mbuf *mbufs[gk->qos_dequeue_size];
-	int ret;
-	const uint64_t drain_tsc = (rte_get_tsc_hz() + US_PER_S - 1) /
-		US_PER_S * BURST_TX_DRAIN_US;
-
-	while (1) {
-		ret = rte_ring_sc_dequeue_bulk(gk->dst_tx_ring,
-			(void **)mbufs, gk->qos_dequeue_size);
-		if (likely(ret == 0)) {
-			/* XXX Shouldn't we send as many as we dequeued? */
-#if 0
-			app_send_packets(gk, dst_queues, mbufs,
-				gk->qos_dequeue_size);
-#endif
-			gk->counter = 0; /* reset empty read loop counter */
-		}
-
-		gk->counter++;
-
-		/* Drain ring and TX queues after some timeout. */
-		if (unlikely(gk->counter > drain_tsc)) {
-			/* Check if there are packets left to be transmitted. */
-			if (gk->n_mbufs != 0) {
-				//app_send_burst(gk, dst_queues);
-				gk->n_mbufs = 0;
-			}
-			gk->counter = 0;
-		}
-	}
+		/* We cannot drop the packets, so re-send. */
+		dst_queues->n_pkts_out -= ret;
+		dst_queues->pkts_out += ret;
+	} while (dst_queues->n_pkts_out);
 }
 
 static int
@@ -274,7 +168,7 @@ enqueue_qptrs_prefetch0(struct dst_queues *dst_queues, struct rte_mbuf *pkt)
  * the queue index down into the pipe index and queue position.
  */
 static inline struct rte_mbuf **
-qbase(struct dst_queues *dst_queues, uint32_t qindex)
+dst_qbase(struct dst_queues *dst_queues, uint32_t qindex)
 {
 	return dst_queues->queue_array + (qindex * dst_queues->qsize);
 }
@@ -319,7 +213,7 @@ enqueue_qwa(struct dst_queues *dst_queues, uint32_t qindex,
 	qbase[q->qw & (dst_queues->qsize - 1)] = pkt;
 	q->qw++;
 
-	/* Activate queue in the port bitmap. */
+	/* Activate queue in the bitmap. */
 	rte_bitmap_set(dst_queues->bmp, qindex);
 
 	return 1;
@@ -357,7 +251,7 @@ dst_enqueue(struct dst_queues *dst_queues, struct rte_mbuf **pkts,
 
 		/* Prefetch the write pointer location of each queue. */
 		for (i = 0; i < n_pkts; i++) {
-			q_base[i] = qbase(dst_queues, q[i]);
+			q_base[i] = dst_qbase(dst_queues, q[i]);
 			enqueue_qwa_prefetch0(dst_queues, q[i], q_base[i]);
 		}
 
@@ -391,8 +285,8 @@ dst_enqueue(struct dst_queues *dst_queues, struct rte_mbuf **pkts,
 	q10 = enqueue_qptrs_prefetch0(dst_queues, pkt10);
 	q11 = enqueue_qptrs_prefetch0(dst_queues, pkt11);
 
-	q20_base = qbase(dst_queues, q20);
-	q21_base = qbase(dst_queues, q21);
+	q20_base = dst_qbase(dst_queues, q20);
+	q21_base = dst_qbase(dst_queues, q21);
 	enqueue_qwa_prefetch0(dst_queues, q20, q20_base);
 	enqueue_qwa_prefetch0(dst_queues, q21, q21_base);
 
@@ -423,8 +317,8 @@ dst_enqueue(struct dst_queues *dst_queues, struct rte_mbuf **pkts,
 		q11 = enqueue_qptrs_prefetch0(dst_queues, pkt11);
 
 		/* Stage 2: Prefetch queue write location. */
-		q20_base = qbase(dst_queues, q20);
-		q21_base = qbase(dst_queues, q21);
+		q20_base = dst_qbase(dst_queues, q20);
+		q21_base = dst_qbase(dst_queues, q21);
 		enqueue_qwa_prefetch0(dst_queues, q20, q20_base);
 		enqueue_qwa_prefetch0(dst_queues, q21, q21_base);
 
@@ -445,8 +339,8 @@ dst_enqueue(struct dst_queues *dst_queues, struct rte_mbuf **pkts,
 	q00 = enqueue_qptrs_prefetch0(dst_queues, pkt00);
 	q01 = enqueue_qptrs_prefetch0(dst_queues, pkt01);
 
-	q10_base = qbase(dst_queues, q10);
-	q11_base = qbase(dst_queues, q11);
+	q10_base = dst_qbase(dst_queues, q10);
+	q11_base = dst_qbase(dst_queues, q11);
 	enqueue_qwa_prefetch0(dst_queues, q10, q10_base);
 	enqueue_qwa_prefetch0(dst_queues, q11, q11_base);
 
@@ -456,8 +350,8 @@ dst_enqueue(struct dst_queues *dst_queues, struct rte_mbuf **pkts,
 
 	q_last = enqueue_qptrs_prefetch0(dst_queues, pkt_last);
 
-	q00_base = qbase(dst_queues, q00);
-	q01_base = qbase(dst_queues, q01);
+	q00_base = dst_qbase(dst_queues, q00);
+	q01_base = dst_qbase(dst_queues, q01);
 	enqueue_qwa_prefetch0(dst_queues, q00, q00_base);
 	enqueue_qwa_prefetch0(dst_queues, q01, q01_base);
 
@@ -465,7 +359,7 @@ dst_enqueue(struct dst_queues *dst_queues, struct rte_mbuf **pkts,
 	r11 = enqueue_qwa(dst_queues, q11, q11_base, pkt11);
 	result += r10 + r11;
 
-	q_last_base = qbase(dst_queues, q_last);
+	q_last_base = dst_qbase(dst_queues, q_last);
 	enqueue_qwa_prefetch0(dst_queues, q_last, q_last_base);
 
 	r00 = enqueue_qwa(dst_queues, q00, q00_base, pkt00);
@@ -480,18 +374,71 @@ dst_enqueue(struct dst_queues *dst_queues, struct rte_mbuf **pkts,
 	return result;
 }
 
-static int
-dst_dequeue(__attribute__((unused)) struct dst_queues *dst_queues,
-	__attribute__((unused)) struct rte_mbuf **mbufs,
-	__attribute__((unused)) uint32_t num_pkts)
+static void
+__dst_dequeue(struct dst_queues *dst_queues, uint32_t num_pkts)
 {
-	return 0;
+	struct gk_queue *q = dst_queues->queue + dst_queues->cur_queue;
+	struct rte_mbuf **qbase = dst_qbase(dst_queues, dst_queues->cur_queue);
+	uint16_t qr;
+
+	do {
+		/* XXX Check credits. */
+		// grinder_credits_check().
+
+		qr = q->qr & (dst_queues->qsize - 1);
+
+		/* Advance port time. */
+		dst_queues->time += qbase[qr]->pkt_len +
+			dst_queues->frame_overhead;
+
+		/* Queue packet. */
+		dst_queues->pkts_out[dst_queues->n_pkts_out] = qbase[qr];
+
+		/* Update number of packets queued. */
+		dst_queues->n_pkts_out++;
+		/* Update number of slots left. */
+		num_pkts--;
+		/* Update queue metadata. */
+		q->qr++;
+	} while (q->qr != q->qw && num_pkts > 0);
+
+	if (q->qr == q->qw) {
+		rte_bitmap_clear(dst_queues->bmp, dst_queues->cur_queue);
+		/* XXX rte_sched_port_set_queue_empty_timestamp(). */
+	} 
+}
+
+/*
+ * XXX Implement prefetching using grinders, as in rte_sched_port_dequeue().
+ */
+static uint32_t
+dst_dequeue(struct dst_queues *dst_queues, const uint32_t num_pkts)
+{
+	uint32_t i = 0;
+
+	dst_queues->n_pkts_out = 0;
+	while (dst_queues->n_pkts_out < num_pkts &&
+		i < dst_queues->num_queues) {
+
+		if (rte_bitmap_get(dst_queues->bmp, dst_queues->cur_queue) != 0)
+			__dst_dequeue(dst_queues,
+				num_pkts - dst_queues->n_pkts_out);
+
+		dst_queues->cur_queue = (dst_queues->cur_queue + 1) &
+					(dst_queues->num_queues - 1);
+		i++;
+	}
+
+        return dst_queues->n_pkts_out;
 }
 
 void
 dst_thread(struct gk_data *gk, struct dst_queues *dst_queues)
 {
-	struct rte_mbuf *mbufs[gk->qos_enqueue_size];
+	struct rte_mbuf *en_mbufs[gk->qos_enqueue_size];
+	struct rte_mbuf *de_mbufs[gk->qos_dequeue_size];
+
+	dst_queues->pkts_out = de_mbufs;
 
 	while (1) {
 		uint32_t nb_pkt;
@@ -503,18 +450,16 @@ dst_thread(struct gk_data *gk, struct dst_queues *dst_queues)
 		 * up to a given number.
 		 */
 		ret = rte_ring_sc_dequeue_bulk(gk->dst_rx_ring,
-			(void **)mbufs, gk->qos_enqueue_size);
-		if (likely(ret == 0))
+			(void **)en_mbufs, gk->qos_enqueue_size);
+		if (likely(ret == 0)) {
 			/* XXX Maintain stats. */
-			nb_pkt = dst_enqueue(dst_queues, mbufs,
+			nb_pkt = dst_enqueue(dst_queues, en_mbufs,
 				gk->qos_enqueue_size);
+			(void)nb_pkt;
+		}
 
-		nb_pkt = dst_dequeue(dst_queues, mbufs, gk->qos_dequeue_size);
-#if USE_TX_THREADS
-		if (likely(nb_pkt > 0))
-			while (rte_ring_sp_enqueue_bulk(gk->dst_tx_ring,
-				(void **)mbufs, nb_pkt) != 0);
-#endif
+		dst_dequeue(dst_queues, gk->qos_dequeue_size);
+		send_burst(gk, dst_queues);
 	}
 }
 
@@ -566,5 +511,3 @@ rx_thread(struct gk_data *gk)
 		}
 	}
 }
-
-
