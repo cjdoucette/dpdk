@@ -35,11 +35,13 @@
 #define _MAIN_H_
 
 #include <rte_reciprocal.h>
+#include <rte_random.h>
 #include "bitmap.h"
 
 #define RTE_LOGTYPE_APP RTE_LOGTYPE_USER1
 
-#define USE_TX_THREADS	1
+#define GK_REQ_PKT	0
+#define GK_CAP_PKT	1
 
 #ifndef APP_MAX_LCORE
 #define APP_MAX_LCORE 64
@@ -225,6 +227,53 @@ struct req_queue {
 	struct rte_bitmap *bmp;
 	uint8_t memory[0] __rte_cache_aligned;
 } __rte_cache_aligned;
+
+/*
+ * Path through the scheduler hierarchy used by the scheduler enqueue
+ * operation to identify the destination queue for the current
+ * packet. Stored in the field pkt.hash.sched of struct rte_mbuf of
+ * each packet, typically written by the classification stage and read
+ * by scheduler enqueue.
+ */
+struct rte_sched_port_hierarchy {
+	uint16_t queue:2;                /**< Queue ID (0 .. 3) */
+	uint16_t traffic_class:2;        /**< Traffic class ID (0 .. 3)*/
+	uint32_t color:2;                /**< Color */
+	uint16_t unused:10;
+	uint16_t subport;                /**< Subport ID */
+	uint32_t pipe;		         /**< Pipe ID */
+};
+
+static inline int
+get_pkt_sched(struct rte_mbuf *m, uint32_t *type, uint32_t *queue)
+{
+	/* uint16_t *pdata = rte_pktmbuf_mtod(m, uint16_t *); */
+
+	struct rte_sched_port_hierarchy *sched;
+	sched = (struct rte_sched_port_hierarchy *)&m->hash.sched;
+
+	/* XXX Replace with lookup and hash. */
+	*type = ((uint64_t)m + rte_rand() % 100) < 5 ? GK_REQ_PKT : GK_CAP_PKT;
+	*queue = *type == GK_REQ_PKT ? 0 : rte_rand() % 4096;
+
+	/* Don't use pipe, color, or traffic_class. */
+	sched->subport = *type;
+	sched->queue = *queue;
+
+	return 0;
+}
+
+static inline void
+pkt_read_tree_path(const struct rte_mbuf *pkt, uint32_t *type, uint32_t *queue)
+{
+	const struct rte_sched_port_hierarchy *sched
+		= (const struct rte_sched_port_hierarchy *) &pkt->hash.sched;
+
+	/* XXX Is this needed? */
+	*type = sched->subport;
+
+	*queue = sched->queue;
+}
 
 int gk_init(struct gk_conf *gk_conf, struct gk_data *gk,
 	unsigned rx_burst_size);

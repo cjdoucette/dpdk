@@ -36,6 +36,7 @@
 #include <rte_cycles.h>
 
 #include "main.h"
+#include "dst.h"
 
 /* Scaling for cycles_per_byte calculation
  * Chosen so that minimum rate is 480 bit/sec

@@ -36,6 +36,8 @@
 #include <rte_sched.h>
 
 #include "main.h"
+#include "dst.h"
+
 #define	DEFAULT_TB_PERIOD		10
 #define	DEFAULT_TB_CREDITS_PER_PERIOD	500
 #define DEFAULT_TB_SIZE			5000
