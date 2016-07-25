@@ -282,6 +282,18 @@ dst_enqueue(struct dst_queues *dst_queues, struct rte_mbuf **pkts,
 	return result;
 }
 
+static inline int
+credits_check(struct dst_queues *dst_queues, struct rte_mbuf *pkt)
+{
+	uint32_t pkt_len = pkt->pkt_len + dst_queues->frame_overhead;
+
+	if (pkt_len > dst_queues->tb_credits)
+		return 0;
+
+	dst_queues->tb_credits -= pkt_len;
+	return 1;
+}
+
 static void
 __dst_dequeue(struct dst_queues *dst_queues, uint32_t num_pkts)
 {
@@ -290,20 +302,19 @@ __dst_dequeue(struct dst_queues *dst_queues, uint32_t num_pkts)
 	uint16_t qr;
 
 	do {
-		/* XXX Check credits. */
-		// grinder_credits_check().
-
 		qr = q->qr & (dst_queues->qsize - 1);
+
+		/* Check credits. */
+		if (!credits_check(dst_queues, qbase[qr]))
+			return;
+
+		/* Queue packet. */
+		dst_queues->pkts_out[dst_queues->n_pkts_out++] = qbase[qr];
 
 		/* Advance port time. */
 		dst_queues->time += qbase[qr]->pkt_len +
 			dst_queues->frame_overhead;
 
-		/* Queue packet. */
-		dst_queues->pkts_out[dst_queues->n_pkts_out] = qbase[qr];
-
-		/* Update number of packets queued. */
-		dst_queues->n_pkts_out++;
 		/* Update number of slots left. */
 		num_pkts--;
 		/* Update queue metadata. */
@@ -334,6 +345,17 @@ time_resync(struct dst_queues *dst_queues)
 		dst_queues->time = dst_queues->time_cpu_bytes;
 }
 
+static inline void
+credits_update(struct dst_queues *dst_queues)
+{
+	uint64_t n_periods = (dst_queues->time - dst_queues->tb_time) /
+		dst_queues->tb_period;
+	dst_queues->tb_credits += n_periods * dst_queues->tb_credits_per_period;
+	dst_queues->tb_credits = min_val_2_u32(dst_queues->tb_credits,
+		dst_queues->tb_size);
+	dst_queues->tb_time += n_periods * dst_queues->tb_period;
+}
+
 /*
  * XXX Implement prefetching using grinders, as in rte_sched_port_dequeue().
  */
@@ -343,6 +365,12 @@ dst_dequeue(struct dst_queues *dst_queues, const uint32_t num_pkts)
 	uint32_t i = 0;
 
 	time_resync(dst_queues);
+
+	/*
+	 * XXX When is the best time to do this? DPDK sched does
+	 * this for every packet that it sees while doing prefetching.
+	 */
+	credits_update(dst_queues);
 
 	dst_queues->n_pkts_out = 0;
 	while (dst_queues->n_pkts_out < num_pkts &&

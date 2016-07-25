@@ -234,10 +234,11 @@ dst_queues_init(struct gk_data *gk, struct queues_conf *conf)
 
 	/* Token bucket. */
 	dst_queues->tb_time = 0;
+	/* XXX Enforce that this is 95%. */
 	dst_queues->tb_period = conf->tb_period;
 	dst_queues->tb_credits_per_period = conf->tb_credits_per_period;
 	dst_queues->tb_size = conf->tb_size;
-	dst_queues->tb_credits = 0;
+	dst_queues->tb_credits = conf->tb_size / 2;
 
 	/* Timing. */
 	dst_queues->time_cpu_cycles = rte_get_tsc_cycles();
@@ -332,10 +333,11 @@ req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 
 	/* Token bucket. */
 	req_queue->tb_time = 0;
+	/* XXX Enforce that this is 5%. */
 	req_queue->tb_period = conf->tb_period;
 	req_queue->tb_credits_per_period = conf->tb_credits_per_period;
 	req_queue->tb_size = conf->tb_size;
-	req_queue->tb_credits = 0;
+	req_queue->tb_credits = conf->tb_size / 2;
 
 	/* Timing. */
 	req_queue->time_cpu_cycles = rte_get_tsc_cycles();

@@ -287,6 +287,12 @@ pkt_read_tree_path(const struct rte_mbuf *pkt, uint32_t *type, uint32_t *queue)
 	*queue = sched->queue;
 }
 
+static inline uint32_t
+min_val_2_u32(uint32_t x, uint32_t y)
+{
+	return (x < y)? x : y;
+}
+
 int gk_init(struct gk_conf *gk_conf, struct gk_data *gk,
 	unsigned rx_burst_size);
 

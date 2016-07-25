@@ -234,6 +234,29 @@ time_resync(struct req_queue *req_queue)
 		req_queue->time = req_queue->time_cpu_bytes;
 }
 
+static inline void
+credits_update(struct req_queue *req_queue)
+{
+	uint64_t n_periods = (req_queue->time - req_queue->tb_time) /
+		req_queue->tb_period;
+	req_queue->tb_credits += n_periods * req_queue->tb_credits_per_period;
+	req_queue->tb_credits = min_val_2_u32(req_queue->tb_credits,
+		req_queue->tb_size);
+	req_queue->tb_time += n_periods * req_queue->tb_period;
+}
+
+static inline int
+credits_check(struct req_queue *req_queue, struct rte_mbuf *pkt)
+{
+	uint32_t pkt_len = pkt->pkt_len + req_queue->frame_overhead;
+
+	if (pkt_len > req_queue->tb_credits)
+		return 0;
+
+	req_queue->tb_credits -= pkt_len;
+	return 1;
+}
+
 uint32_t
 req_dequeue(struct req_queue *req_queue, const uint32_t num_pkts)
 {
@@ -242,14 +265,26 @@ req_dequeue(struct req_queue *req_queue, const uint32_t num_pkts)
 
 	time_resync(req_queue);
 
+	/*
+	 * XXX When is the best time to do this? DPDK sched does
+	 * this for every packet that it sees while doing prefetching.
+	 */
+	credits_update(req_queue);
+
 	req_queue->n_pkts_out = 0;
 	while (req_queue->n_pkts_out < num_pkts && head != NULL) {
 
-		/* XXX Check credits. */
-
 		pkt = head->mbuf;
 
+		/* Check credits. */
+		if (!credits_check(req_queue, pkt))
+			goto out;
+
 		/* Remove request from queue. */
+		if (head->prev == NULL ||
+			(head->priority != head->prev->priority)) {
+			rte_bitmap_clear(req_queue->bmp, head->priority);
+		}
 		head = head->prev;
 		head->next = NULL;
 		req_queue->length--;
@@ -260,14 +295,14 @@ req_dequeue(struct req_queue *req_queue, const uint32_t num_pkts)
 			continue;
 		}
 
+		/* Queue packet for transmission. */
+		req_queue->pkts_out[req_queue->n_pkts_out++] = pkt;
+
 		/* Advance port time. */
 		req_queue->time += pkt->pkt_len + req_queue->frame_overhead;
-
-		/* Queue packet for transmission. */
-		req_queue->pkts_out[req_queue->n_pkts_out] = pkt;
-		req_queue->n_pkts_out++;
 	}
 
+out:
 	req_queue->head = head;
 	req_queue->highest_priority = head->priority;
 	if (req_queue->head == NULL)
