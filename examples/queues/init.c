@@ -284,10 +284,10 @@ enum req_queue_pos {
 };
 
 static uint32_t
-req_queue_offset(enum req_queue_pos pos)
+req_queue_offset(struct req_queue *req_queue, enum req_queue_pos pos)
 {
 	uint32_t size_bmp_array =
-		rte_bitmap_get_memory_footprint(GK_NUM_REQ_PRIORITIES);
+		rte_bitmap_get_memory_footprint(req_queue->num_priorities);
 
 	/*
 	 * Add the size of each queue's metadata,
@@ -303,10 +303,10 @@ req_queue_offset(enum req_queue_pos pos)
 }
 
 static inline uint32_t
-req_queue_mem_size(void)
+req_queue_mem_size(struct req_queue *req_queue)
 {
 	return sizeof(struct req_queue) +
-		req_queue_offset(e_REQ_QUEUE_TOTAL);
+		req_queue_offset(req_queue, e_REQ_QUEUE_TOTAL);
 }
 
 static struct req_queue *
@@ -315,7 +315,7 @@ req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 	struct req_queue *req_queue = NULL;
 	uint32_t mem_size, bmp_mem_size, cycles_per_byte;
 
-	mem_size = req_queue_mem_size();
+	mem_size = req_queue_mem_size(req_queue);
 	if (mem_size == 0)
 		return NULL;
 
@@ -331,7 +331,9 @@ req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 	req_queue->frame_overhead = conf->frame_overhead;
 	req_queue->qsize = conf->qsize;
 	req_queue->length = 0;
+	req_queue->num_priorities = conf->num_queues;
 	req_queue->highest_priority = 0;
+	req_queue->lowest_priority = conf->num_queues;
 
 	/* Token bucket. */
 	req_queue->tb_time = 0;
@@ -355,10 +357,11 @@ req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 	req_queue->head = NULL;
 
 	req_queue->bmp_array = req_queue->memory +
-		req_queue_offset(e_DST_QUEUES_BITMAP);
+		req_queue_offset(req_queue, e_DST_QUEUES_BITMAP);
 
-	bmp_mem_size = rte_bitmap_get_memory_footprint(GK_NUM_REQ_PRIORITIES);
-	req_queue->bmp = rte_bitmap_init(GK_NUM_REQ_PRIORITIES,
+	bmp_mem_size =
+		rte_bitmap_get_memory_footprint(req_queue->num_priorities);
+	req_queue->bmp = rte_bitmap_init(req_queue->num_priorities,
 		req_queue->bmp_array, bmp_mem_size);
 	if (req_queue->bmp == NULL) {
 		printf("bitmap init error\n");

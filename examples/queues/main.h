@@ -209,9 +209,11 @@ struct req_queue {
 	uint64_t rate;
 	uint32_t mtu;
 	uint32_t frame_overhead;
-	uint16_t qsize;
-	uint16_t length;
+	uint32_t qsize;
+	uint32_t length;
+	uint16_t num_priorities;
 	uint16_t highest_priority;
+	uint16_t lowest_priority;
 
 	/* Token bucket. */
 	uint64_t tb_time;

@@ -44,8 +44,9 @@
 #define DEFAULT_TB_SIZE			5000
 
 #define DEFAULT_QUEUE_SIZE	256
-#define NUM_QUEUES_REQ		1
 #define NUM_QUEUES_DST		4096
+
+#define GK_REQ_QUEUE_MAX_LENGTH	512
 
 #define QUEUES_MTU	(6 + 6 + 4 + 4 + 2 + 1500)
 #define QUEUES_FRAME_OVERHEAD	RTE_SCHED_FRAME_OVERHEAD_DEFAULT
@@ -58,8 +59,8 @@ static struct queues_conf req_conf = {
 	.mtu = QUEUES_MTU,
 	.frame_overhead = QUEUES_FRAME_OVERHEAD,
 
-	.qsize = GK_NUM_REQ_PRIORITIES,
-	.num_queues = 1,
+	.qsize = GK_REQ_QUEUE_MAX_LENGTH,
+	.num_queues = GK_NUM_REQ_PRIORITIES,
 };
 
 static struct queues_conf dst_conf = {

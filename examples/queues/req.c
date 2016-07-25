@@ -31,7 +31,6 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <rte_cycles.h>
 #include <rte_ethdev.h>
 
 #include "req.h"
@@ -70,26 +69,31 @@ static void
 insert_new_priority_req(struct req_queue *req_queue, struct priority_ll *pll)
 {
 	uint8_t next, prev;
+	uint8_t priority = pll->priority;
 
-	req_queue->priorities[pll->priority] = pll;
+	req_queue->priorities[priority] = pll;
 	pll->next = NULL;
 	pll->prev = NULL;
 
 	/* This is the first packet in the queue. */
 	if (req_queue->length == 0) {
 		req_queue->head = pll;
-		req_queue->highest_priority = pll->priority;
+		req_queue->highest_priority = priority;
+		req_queue->lowest_priority = priority;
 		return;
 	}
 
 	/* Update head of queue. */
-	if (pll->priority > req_queue->highest_priority) {
+	if (priority > req_queue->highest_priority) {
 		req_queue->head = pll;
-		req_queue->highest_priority = pll->priority;
+		req_queue->highest_priority = priority;
 	}
 
+	if (priority < req_queue->lowest_priority)
+		req_queue->lowest_priority = priority;
+
 	/* Search for the next node in the queue. */
-	for (next = pll->priority + 1; next < GK_NUM_REQ_PRIORITIES; next++) {
+	for (next = priority + 1; next < req_queue->num_priorities; next++) {
 		if (rte_bitmap_get(req_queue->bmp, next) != 0) {
 			pll->next = req_queue->priorities[next];
 			break;
@@ -111,7 +115,7 @@ insert_new_priority_req(struct req_queue *req_queue, struct priority_ll *pll)
 	 * know there must be a previous node because the
 	 * queue has at least one packet in it.
 	 */
-	for (prev = pll->priority - 1; prev >= 2; prev--)
+	for (prev = priority - 1; prev >= 2; prev--)
 		if (rte_bitmap_get(req_queue->bmp, prev) != 0)
 			break;
 	pll->prev = first_pkt_of_priority(req_queue->priorities[prev], prev);
@@ -130,6 +134,43 @@ insert_req(struct priority_ll *last_req_of_pri, struct priority_ll *new_req)
 	new_req->next = last_req_of_pri;
 }
 
+static uint32_t
+drop_lowest_priority_pkt(struct req_queue *req_queue, struct priority_ll *pll)
+{
+	struct priority_ll *lowest_pll;
+
+	/* New packet is lowest priority, so drop it. */
+	if (pll->priority == req_queue->lowest_priority) {
+		rte_pktmbuf_free(pll->mbuf);
+		return 0;
+	}
+
+	lowest_pll = req_queue->priorities[req_queue->lowest_priority];
+
+	/* Only one packet in the queue (probably will never happen). */
+	if (lowest_pll->next == NULL) {
+		req_queue->priorities[lowest_pll->priority] = NULL;
+		req_queue->lowest_priority = 0;
+		goto out;
+	}
+
+	/* The lowest priority packet was the only one of that priority. */
+	if (lowest_pll->priority != lowest_pll->next->priority) {
+		req_queue->priorities[lowest_pll->priority] = NULL;
+		lowest_pll->next->prev = NULL;
+		req_queue->lowest_priority = lowest_pll->next->priority;
+		goto out;
+	}
+
+	req_queue->priorities[lowest_pll->priority] = lowest_pll->next;
+	lowest_pll->next->prev = NULL;
+
+out:
+	rte_pktmbuf_free(lowest_pll->mbuf);
+	req_queue->length--;
+	return 1;
+}
+
 int
 req_enqueue(struct req_queue *req_queue, struct rte_mbuf **mbufs,
 	uint32_t num_pkts)
@@ -143,7 +184,7 @@ req_enqueue(struct req_queue *req_queue, struct rte_mbuf **mbufs,
 			sizeof(*pll));
 		/*
 		 * XXX Does mbuf pool creation size guarantee
-		 * this should never happen?
+		 * this should never happen? Add drop statistics.
 		 */
 		if (!pll) {
 			rte_pktmbuf_free(mbufs[i]);
@@ -152,6 +193,12 @@ req_enqueue(struct req_queue *req_queue, struct rte_mbuf **mbufs,
 
 		pll->mbuf = mbufs[i];
 		pll->priority = req_get_priority(mbufs[i]);
+
+		if (req_queue->length == req_queue->qsize) {
+			/* XXX Add drop statistics. */
+			if (drop_lowest_priority_pkt(req_queue, pll) == 0)
+				continue;
+		}
 
 		/* Insert request of a priority we don't yet have. */
 		if (req_queue->priorities[pll->priority] == NULL) {
@@ -201,5 +248,9 @@ req_dequeue(struct req_queue *req_queue, const uint32_t num_pkts)
 	}
 
 	req_queue->head = head;
+	req_queue->highest_priority = head->priority;
+	if (req_queue->head == NULL)
+		req_queue->lowest_priority = req_queue->num_priorities;
+
 	return req_queue->n_pkts_out;
 }
