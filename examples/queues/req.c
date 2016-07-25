@@ -51,6 +51,7 @@ req_send_burst(struct gk_data *gk, struct req_queue *req_queue)
 	} while (req_queue->n_pkts_out);
 }
 
+/* XXX Dummy implementation. */
 static inline uint8_t
 req_get_priority(struct rte_mbuf *pkt)
 {
@@ -75,8 +76,17 @@ insert_new_priority_req(struct req_queue *req_queue, struct priority_ll *pll)
 	pll->prev = NULL;
 
 	/* This is the first packet in the queue. */
-	if (req_queue->length == 0)
+	if (req_queue->length == 0) {
+		req_queue->head = pll;
+		req_queue->highest_priority = pll->priority;
 		return;
+	}
+
+	/* Update head of queue. */
+	if (pll->priority > req_queue->highest_priority) {
+		req_queue->head = pll;
+		req_queue->highest_priority = pll->priority;
+	}
 
 	/* Search for the next node in the queue. */
 	for (next = pll->priority + 1; next < GK_NUM_REQ_PRIORITIES; next++) {
@@ -140,6 +150,7 @@ req_enqueue(struct req_queue *req_queue, struct rte_mbuf **mbufs,
 			continue;
 		}
 
+		pll->mbuf = mbufs[i];
 		pll->priority = req_get_priority(mbufs[i]);
 
 		/* Insert request of a priority we don't yet have. */
@@ -160,7 +171,35 @@ req_enqueue(struct req_queue *req_queue, struct rte_mbuf **mbufs,
 uint32_t
 req_dequeue(struct req_queue *req_queue, const uint32_t num_pkts)
 {
-	(void)req_queue;
-	(void)num_pkts;
-	return 0;
+	struct priority_ll *head = req_queue->head;
+	struct rte_mbuf *pkt;
+
+	req_queue->n_pkts_out = 0;
+	while (req_queue->n_pkts_out < num_pkts && head != NULL) {
+
+		/* XXX Check credits. */
+
+		pkt = head->mbuf;
+
+		/* Remove request from queue. */
+		head = head->prev;
+		head->next = NULL;
+		req_queue->length--;
+
+		/* Remove extra space in mbuf. */
+		if (rte_pktmbuf_adj(pkt, sizeof(*head)) == NULL) {
+			rte_panic("bug in request queue: should be able to remove the extra linked list data in a packet, but the removal failed\n");;
+			continue;
+		}
+
+		/* Advance port time. */
+		req_queue->time += pkt->pkt_len + req_queue->frame_overhead;
+
+		/* Queue packet for transmission. */
+		req_queue->pkts_out[req_queue->n_pkts_out] = pkt;
+		req_queue->n_pkts_out++;
+	}
+
+	req_queue->head = head;
+	return req_queue->n_pkts_out;
 }

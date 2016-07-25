@@ -201,6 +201,7 @@ struct dst_queues {
 struct priority_ll {
 	struct priority_ll *next;
 	struct priority_ll *prev;
+	struct rte_mbuf *mbuf;
 	uint8_t priority;
 };
 
@@ -210,6 +211,7 @@ struct req_queue {
 	uint32_t frame_overhead;
 	uint16_t qsize;
 	uint16_t length;
+	uint16_t highest_priority;
 
 	/* Token bucket. */
 	uint64_t tb_time;
@@ -231,6 +233,8 @@ struct req_queue {
 
 	struct rte_mbuf **pkts_out;
 	uint32_t n_pkts_out;
+
+	struct priority_ll *head;
 
 	uint8_t *bmp_array;
 	struct priority_ll *priorities[GK_NUM_REQ_PRIORITIES];

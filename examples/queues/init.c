@@ -331,6 +331,7 @@ req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 	req_queue->frame_overhead = conf->frame_overhead;
 	req_queue->qsize = conf->qsize;
 	req_queue->length = 0;
+	req_queue->highest_priority = 0;
 
 	/* Token bucket. */
 	req_queue->tb_time = 0;
@@ -350,6 +351,8 @@ req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 
 	req_queue->pkts_out = NULL;
 	req_queue->n_pkts_out = 0;
+
+	req_queue->head = NULL;
 
 	req_queue->bmp_array = req_queue->memory +
 		req_queue_offset(e_DST_QUEUES_BITMAP);
