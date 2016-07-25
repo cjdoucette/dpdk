@@ -279,20 +279,15 @@ dst_queues_init(struct gk_data *gk, struct queues_conf *conf)
 }
 
 enum req_queue_pos {
-	e_REQ_QUEUE_QUEUE_META,
 	e_REQ_QUEUE_BITMAP,
-	e_REQ_QUEUE_QUEUE_ARRAY,
 	e_REQ_QUEUE_TOTAL
 };
 
 static uint32_t
-req_queue_offset(struct queues_conf *conf, enum req_queue_pos pos)
+req_queue_offset(enum req_queue_pos pos)
 {
-	uint32_t n_queues = conf->num_queues;
-	uint32_t size_queue_meta = n_queues * sizeof(struct gk_queue);
-	uint32_t size_bmp_array = rte_bitmap_get_memory_footprint(n_queues);
-	uint32_t size_queue = conf->qsize * sizeof(struct rte_mbuf *);
-	uint32_t size_queue_array = n_queues * size_queue;
+	uint32_t size_bmp_array =
+		rte_bitmap_get_memory_footprint(GK_NUM_REQ_PRIORITIES);
 
 	/*
 	 * Add the size of each queue's metadata,
@@ -300,29 +295,19 @@ req_queue_offset(struct queues_conf *conf, enum req_queue_pos pos)
 	 */
 	uint32_t base = 0;
 
-	if (pos == e_REQ_QUEUE_QUEUE_META)
-		return base;
-	base += RTE_CACHE_LINE_ROUNDUP(size_queue_meta);
-
 	if (pos == e_REQ_QUEUE_BITMAP)
 		return base;
 	base += RTE_CACHE_LINE_ROUNDUP(size_bmp_array);
-
-	if (pos == e_REQ_QUEUE_QUEUE_ARRAY)
-		return base;
-	base += RTE_CACHE_LINE_ROUNDUP(size_queue_array);
 
 	return base;
 }
 
 static inline uint32_t
-req_queue_mem_size(struct queues_conf *conf)
+req_queue_mem_size(void)
 {
 	return sizeof(struct req_queue) +
-		req_queue_offset(conf, e_REQ_QUEUE_TOTAL);
+		req_queue_offset(e_REQ_QUEUE_TOTAL);
 }
-
-
 
 static struct req_queue *
 req_queue_init(struct gk_data *gk, struct queues_conf *conf)
@@ -330,21 +315,22 @@ req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 	struct req_queue *req_queue = NULL;
 	uint32_t mem_size, bmp_mem_size, cycles_per_byte;
 
-	mem_size = dst_queues_mem_size(conf);
+	mem_size = req_queue_mem_size();
 	if (mem_size == 0)
 		return NULL;
 
 	req_queue = rte_zmalloc("req_queue", mem_size, RTE_CACHE_LINE_SIZE);
 	if (req_queue == NULL) {
-		printf("Could not allocate req_queues\n");
+		printf("Could not allocate req_queue\n");
 		return NULL;
 	}
 
 	/* User parameters. */
 	req_queue->rate = 0;
 	req_queue->mtu = conf->mtu;
+	req_queue->frame_overhead = conf->frame_overhead;
 	req_queue->qsize = conf->qsize;
-	req_queue->num_queues = conf->num_queues;
+	req_queue->length = 0;
 
 	/* Token bucket. */
 	req_queue->tb_time = 0;
@@ -365,19 +351,11 @@ req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 	req_queue->pkts_out = NULL;
 	req_queue->n_pkts_out = 0;
 
-	req_queue->queue = (struct gk_queue *)
-		(req_queue->memory +
-		req_queue_offset(conf, e_DST_QUEUES_QUEUE_META));
-
 	req_queue->bmp_array = req_queue->memory +
-		req_queue_offset(conf, e_DST_QUEUES_BITMAP);
+		req_queue_offset(e_DST_QUEUES_BITMAP);
 
-	req_queue->queue_array = (struct rte_mbuf **)
-		(req_queue->memory +
-		req_queue_offset(conf, e_DST_QUEUES_QUEUE_ARRAY));
-
-	bmp_mem_size = rte_bitmap_get_memory_footprint(conf->num_queues);
-	req_queue->bmp = rte_bitmap_init(conf->num_queues,
+	bmp_mem_size = rte_bitmap_get_memory_footprint(GK_NUM_REQ_PRIORITIES);
+	req_queue->bmp = rte_bitmap_init(GK_NUM_REQ_PRIORITIES,
 		req_queue->bmp_array, bmp_mem_size);
 	if (req_queue->bmp == NULL) {
 		printf("bitmap init error\n");
@@ -393,11 +371,6 @@ gk_init(struct gk_conf *gk_conf, struct gk_data *gk, unsigned rx_burst_size)
 	struct rte_eth_link link;
 	uint32_t socket = rte_lcore_to_socket_id(gk_conf->rx_core);
 
-	/*
-	 * Create the mbuf pools for each RX port.
-	 * XXX When we use multiple queues, we need multiple mbuf pools.
-	 * For now, just use one for both requests and priority packets.
-	 */
 	gk->mbuf_pool = rte_pktmbuf_pool_create("mbuf_pool",
 		gk_conf->mbuf_pool_size, 4 * rx_burst_size, 0,
 		RTE_MBUF_DEFAULT_BUF_SIZE,

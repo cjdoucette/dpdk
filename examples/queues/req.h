@@ -31,14 +31,14 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _GK_DST_H_
-#define _GK_DST_H_
+#ifndef _GK_REQ_H_
+#define _GK_REQ_H_
 
 #include "main.h"
 
-int dst_enqueue(struct dst_queues *dst_queues, struct rte_mbuf **pkts,
+int req_enqueue(struct req_queue *req_queue, struct rte_mbuf **pkts,
 	uint32_t n_pkts);
-uint32_t dst_dequeue(struct dst_queues *dst_queues, const uint32_t num_pkts);
-void dst_send_burst(struct gk_data *gk, struct dst_queues *dst_queues);
+uint32_t req_dequeue(struct req_queue *req_queue, const uint32_t num_pkts);
+void req_send_burst(struct gk_data *gk, struct req_queue *req_queue);
 
-#endif /* _GK_DST_H_ */
+#endif /* _GK_REQ_H_ */

@@ -40,6 +40,8 @@
 
 #define RTE_LOGTYPE_APP RTE_LOGTYPE_USER1
 
+#define GK_NUM_REQ_PRIORITIES	64
+
 #define GK_REQ_PKT	0
 #define GK_CAP_PKT	1
 
@@ -196,11 +198,18 @@ struct dst_queues {
 	uint8_t memory[0] __rte_cache_aligned;
 } __rte_cache_aligned;
 
+struct priority_ll {
+	struct priority_ll *next;
+	struct priority_ll *prev;
+	uint8_t priority;
+};
+
 struct req_queue {
 	uint64_t rate;
 	uint32_t mtu;
+	uint32_t frame_overhead;
 	uint16_t qsize;
-	uint16_t num_queues;
+	uint16_t length;
 
 	/* Token bucket. */
 	uint64_t tb_time;
@@ -218,13 +227,13 @@ struct req_queue {
 	/* CPU cycles per byte */
 	struct rte_reciprocal inv_cycles_per_byte;
 
+	struct rte_bitmap *bmp;
+
 	struct rte_mbuf **pkts_out;
 	uint32_t n_pkts_out;
 
-	struct gk_queue *queue;
 	uint8_t *bmp_array;
-	struct rte_mbuf **queue_array;
-	struct rte_bitmap *bmp;
+	struct priority_ll *priorities[GK_NUM_REQ_PRIORITIES];
 	uint8_t memory[0] __rte_cache_aligned;
 } __rte_cache_aligned;
 
@@ -235,13 +244,10 @@ struct req_queue {
  * each packet, typically written by the classification stage and read
  * by scheduler enqueue.
  */
-struct rte_sched_port_hierarchy {
-	uint16_t queue:2;                /**< Queue ID (0 .. 3) */
-	uint16_t traffic_class:2;        /**< Traffic class ID (0 .. 3)*/
-	uint32_t color:2;                /**< Color */
-	uint16_t unused:10;
-	uint16_t subport;                /**< Subport ID */
-	uint32_t pipe;		         /**< Pipe ID */
+struct gk_queue_hierarchy {
+	uint16_t type;
+	uint16_t queue;
+	uint32_t unused;
 };
 
 static inline int
@@ -249,29 +255,24 @@ get_pkt_sched(struct rte_mbuf *m, uint32_t *type, uint32_t *queue)
 {
 	/* uint16_t *pdata = rte_pktmbuf_mtod(m, uint16_t *); */
 
-	struct rte_sched_port_hierarchy *sched;
-	sched = (struct rte_sched_port_hierarchy *)&m->hash.sched;
+	struct gk_queue_hierarchy *sched =
+		(struct gk_queue_hierarchy *)&m->hash.sched;
 
 	/* XXX Replace with lookup and hash. */
 	*type = ((uint64_t)m + rte_rand() % 100) < 5 ? GK_REQ_PKT : GK_CAP_PKT;
 	*queue = *type == GK_REQ_PKT ? 0 : rte_rand() % 4096;
 
-	/* Don't use pipe, color, or traffic_class. */
-	sched->subport = *type;
+	sched->type = *type;
 	sched->queue = *queue;
-
 	return 0;
 }
 
 static inline void
 pkt_read_tree_path(const struct rte_mbuf *pkt, uint32_t *type, uint32_t *queue)
 {
-	const struct rte_sched_port_hierarchy *sched
-		= (const struct rte_sched_port_hierarchy *) &pkt->hash.sched;
-
-	/* XXX Is this needed? */
-	*type = sched->subport;
-
+	const struct gk_queue_hierarchy *sched
+		= (const struct gk_queue_hierarchy *)&pkt->hash.sched;
+	*type = sched->type;
 	*queue = sched->queue;
 }
 

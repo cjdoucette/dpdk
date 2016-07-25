@@ -36,44 +36,40 @@
 
 #include "main.h"
 #include "dst.h"
-
-#define BURST_TX_DRAIN_US 100
-
-static int
-req_enqueue(__attribute__((unused)) struct req_queue *req_queue,
-	__attribute__((unused)) struct rte_mbuf **mbufs,
-	__attribute__((unused)) uint32_t num_pkts)
-{
-	return 0;
-}
-
-static int
-req_dequeue(__attribute__((unused)) struct req_queue *req_queue,
-	__attribute__((unused)) struct rte_mbuf **mbufs,
-	__attribute__((unused)) uint32_t num_pkts)
-{
-	return 0;
-}
+#include "req.h"
 
 void
 req_thread(struct gk_data *gk, struct req_queue *req_queue)
 {
-	struct rte_mbuf *mbufs[gk->qos_enqueue_size];
+	struct rte_mbuf *en_mbufs[gk->qos_enqueue_size];
+	struct rte_mbuf *de_mbufs[gk->qos_dequeue_size];
+
+	req_queue->pkts_out = de_mbufs;
 
 	while (1) {
 		uint32_t nb_pkt;
 		int ret;
 
+		/*
+		 * XXX Only dequeues when at least gk->qos_enqueue_size
+		 * packets are available. Use *_burst() to dequeue
+		 * up to a given number.
+		 */
 		ret = rte_ring_sc_dequeue_bulk(gk->req_rx_ring,
-			(void **)mbufs, gk->qos_enqueue_size);
-		if (likely(ret == 0))
-			/* XXX Catch return value and maintain stats. */
-			req_enqueue(req_queue, mbufs, gk->qos_enqueue_size);
+			(void **)en_mbufs, gk->qos_enqueue_size);
+		if (likely(ret == 0)) {
+			/* XXX Maintain stats. */
+			nb_pkt = req_enqueue(req_queue, en_mbufs,
+				gk->qos_enqueue_size);
+			(void)nb_pkt;
+		}
 
-		nb_pkt = req_dequeue(req_queue, mbufs, gk->qos_dequeue_size);
-		(void)nb_pkt;
+		req_dequeue(req_queue, gk->qos_dequeue_size);
+		//dst_send_burst(gk, dst_queues);
 	}
 }
+
+
 
 void
 dst_thread(struct gk_data *gk, struct dst_queues *dst_queues)

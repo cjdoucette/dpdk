@@ -37,6 +37,7 @@
 
 #include "main.h"
 #include "dst.h"
+#include "req.h"
 
 #define	DEFAULT_TB_PERIOD		10
 #define	DEFAULT_TB_CREDITS_PER_PERIOD	500
@@ -57,8 +58,8 @@ static struct queues_conf req_conf = {
 	.mtu = QUEUES_MTU,
 	.frame_overhead = QUEUES_FRAME_OVERHEAD,
 
-	.qsize = DEFAULT_QUEUE_SIZE,
-	.num_queues = NUM_QUEUES_REQ,
+	.qsize = GK_NUM_REQ_PRIORITIES,
+	.num_queues = 1,
 };
 
 static struct queues_conf dst_conf = {
