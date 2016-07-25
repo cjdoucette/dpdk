@@ -60,7 +60,6 @@
  *
  ***/
 
-/* XXX */
 #include <string.h>
 
 #include <rte_common.h>
