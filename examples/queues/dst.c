@@ -31,6 +31,7 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <rte_cycles.h>
 #include <rte_ethdev.h>
 
 #include "dst.h"
@@ -315,6 +316,24 @@ __dst_dequeue(struct dst_queues *dst_queues, uint32_t num_pkts)
 	} 
 }
 
+static inline void
+time_resync(struct dst_queues *dst_queues)
+{
+	uint64_t cycles = rte_get_tsc_cycles();
+	uint64_t cycles_diff = cycles - dst_queues->time_cpu_cycles;
+	uint64_t bytes_diff;
+
+	/* Compute elapsed time in bytes. */
+	bytes_diff = rte_reciprocal_divide(cycles_diff << RTE_SCHED_TIME_SHIFT,
+		dst_queues->inv_cycles_per_byte);
+
+	/* Advance port time. */
+	dst_queues->time_cpu_cycles = cycles;
+	dst_queues->time_cpu_bytes += bytes_diff;
+	if (dst_queues->time < dst_queues->time_cpu_bytes)
+		dst_queues->time = dst_queues->time_cpu_bytes;
+}
+
 /*
  * XXX Implement prefetching using grinders, as in rte_sched_port_dequeue().
  */
@@ -322,6 +341,8 @@ uint32_t
 dst_dequeue(struct dst_queues *dst_queues, const uint32_t num_pkts)
 {
 	uint32_t i = 0;
+
+	time_resync(dst_queues);
 
 	dst_queues->n_pkts_out = 0;
 	while (dst_queues->n_pkts_out < num_pkts &&

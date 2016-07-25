@@ -31,6 +31,7 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <rte_cycles.h>
 #include <rte_ethdev.h>
 
 #include "req.h"
@@ -215,11 +216,31 @@ req_enqueue(struct req_queue *req_queue, struct rte_mbuf **mbufs,
 	return added;
 }
 
+static inline void
+time_resync(struct req_queue *req_queue)
+{
+	uint64_t cycles = rte_get_tsc_cycles();
+	uint64_t cycles_diff = cycles - req_queue->time_cpu_cycles;
+	uint64_t bytes_diff;
+
+	/* Compute elapsed time in bytes. */
+	bytes_diff = rte_reciprocal_divide(cycles_diff << RTE_SCHED_TIME_SHIFT,
+		req_queue->inv_cycles_per_byte);
+
+	/* Advance port time. */
+	req_queue->time_cpu_cycles = cycles;
+	req_queue->time_cpu_bytes += bytes_diff;
+	if (req_queue->time < req_queue->time_cpu_bytes)
+		req_queue->time = req_queue->time_cpu_bytes;
+}
+
 uint32_t
 req_dequeue(struct req_queue *req_queue, const uint32_t num_pkts)
 {
 	struct priority_ll *head = req_queue->head;
 	struct rte_mbuf *pkt;
+
+	time_resync(req_queue);
 
 	req_queue->n_pkts_out = 0;
 	while (req_queue->n_pkts_out < num_pkts && head != NULL) {

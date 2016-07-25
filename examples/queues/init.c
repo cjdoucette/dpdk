@@ -38,11 +38,6 @@
 #include "main.h"
 #include "dst.h"
 
-/* Scaling for cycles_per_byte calculation
- * Chosen so that minimum rate is 480 bit/sec
- */
-#define RTE_SCHED_TIME_SHIFT		      8
-
 //#define SYS_CPU_DIR "/sys/devices/system/cpu/cpu%u/topology/"
 
 static const struct rte_eth_conf port_conf = {

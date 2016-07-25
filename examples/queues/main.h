@@ -45,6 +45,11 @@
 #define GK_REQ_PKT	0
 #define GK_CAP_PKT	1
 
+/* Scaling for cycles_per_byte calculation
+ * Chosen so that minimum rate is 480 bit/sec
+ */
+#define RTE_SCHED_TIME_SHIFT		      8
+
 #ifndef APP_MAX_LCORE
 #define APP_MAX_LCORE 64
 #endif
