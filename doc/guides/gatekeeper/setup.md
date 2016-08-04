@@ -41,10 +41,22 @@ The following makes the uio, uio\_pci\_generic, and igb\_uio installations persi
     # echo "uio_pci_generic" | sudo tee -a /etc/modules
     # echo "igb_uio" | sudo tee -a /etc/modules
 
+### Setup Hugepages
+
+Edit the file /etc/default/grub to add this line:
+
+    -GRUB_CMDLINE_LINUX_DEFAULT=""
+    +GRUB_CMDLINE_LINUX_DEFAULT="hugepagesz=1GB hugepages=8"
+
+and then do:
+
+    # update-grub
+
 ## Setup After Every Reboot
 
 After every reboot, the hugepages have to be setup with the following steps:
 
+    # mkdir -p /mnt/huge
     # mount -t hugetlbfs nodev /mnt/huge -o pagesize=1G
 
 A couple of NICs should also be bound to DPDK. If they're not, some example applications can fail with what appear to be memory errors (although sometimes they will correctly report not enough ports):
