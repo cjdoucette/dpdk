@@ -30,13 +30,15 @@ Obtain the DPDK source code; here's one example to get the copy that Cody has be
 ### Install Kernel Modules
 
     # modprobe uio
+    # modprobe uio_pci_generic
     # insmod ${RTE_SDK}/build/kmod/igb_uio.ko
 
-The following makes the uio and igb\_uio installations persist across reboots:
+The following makes the uio, uio\_pci\_generic, and igb\_uio installations persist across reboots:
 
     # ln -s ${RTE_SDK}/build/kmod/igb_uio.ko /lib/modules/`uname -r`
     # depmod -a
     # echo "uio" | sudo tee -a /etc/modules
+    # echo "uio_pci_generic" | sudo tee -a /etc/modules
     # echo "igb_uio" | sudo tee -a /etc/modules
 
 ## Setup After Every Reboot
@@ -48,8 +50,8 @@ After every reboot, the hugepages have to be setup with the following steps:
 A couple of NICs should also be bound to DPDK. If they're not, some example applications can fail with what appear to be memory errors (although sometimes they will correctly report not enough ports):
 
     $ cd dpdk/tools
-    # ./dpdk_nic_bind.py --bind=igb_uio enp131s0f0
-    # ./dpdk_nic_bind.py --bind=igb_uio enp131s0f1
+    # ./dpdk_nic_bind.py --bind=uio_pci_generic enp131s0f0
+    # ./dpdk_nic_bind.py --bind=uio_pci_generic enp131s0f1
 
 ## Setup for Individual Users
 
