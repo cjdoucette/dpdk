@@ -43,10 +43,7 @@ The following makes the uio and igb\_uio installations persist across reboots:
 
 After every reboot, the hugepages have to be setup with the following steps:
 
-    $ HUGEPAGE_MOUNT=/mnt/huge
-    # echo 1024 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
-    # mkdir ${HUGEPAGE_MOUNT}
-    # mount -t hugetlbfs nodev ${HUGEPAGE_MOUNT}
+    # mount -t hugetlbfs nodev /mnt/huge -o pagesize=1G
 
 ## Setup for Individual Users
 
@@ -104,11 +101,11 @@ To bind a device to the kernel, issue this command:
 
 ### Configuring Hugepages
 
-When DPDK programs fail, they may not properly release the pages that they were allocated. You can check how many hugepages you've allocated and how many are free by executing this command:
+When DPDK programs fail, they may not properly release the pages that they were allocated. You can check how many hugepages you've allocated and how many are free by executing this command (note: by default, /proc/meminfo seems only to include information about 2048KB hugepages, but we're using 1GB hugepages, so that information is not displayed):
 
     $ grep -i huge /proc/meminfo
 
 To free all of the pages, you can force them to release by unmounting them and remounting them:
 
     # umount /mnt/huge
-    # mount -t hugetlbfs nodev /mnt/huge
+    # mount -t hugetlbfs nodev /mnt/huge -o pagesize=1G
