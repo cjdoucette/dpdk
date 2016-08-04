@@ -45,6 +45,12 @@ After every reboot, the hugepages have to be setup with the following steps:
 
     # mount -t hugetlbfs nodev /mnt/huge -o pagesize=1G
 
+A couple of NICs should also be bound to DPDK. If they're not, some example applications can fail with what appear to be memory errors (although sometimes they will correctly report not enough ports):
+
+    $ cd dpdk/tools
+    # ./dpdk_nic_bind.py --bind=igb_uio enp131s0f0
+    # ./dpdk_nic_bind.py --bind=igb_uio enp131s0f1
+
 ## Setup for Individual Users
 
 Assuming the first-time setup and setup after every reboot have been completed (as described above), individual users can set up their own local copy of DPDK using these steps:
