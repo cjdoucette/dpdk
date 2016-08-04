@@ -78,7 +78,7 @@ To make the environmental variables be set at each login, use these commands:
 
     $ ln -s ${RTE_SDK}/build ${RTE_SDK}/${RTE_TARGET}
 
-## Configuration NICs and Hugepages
+## Configuring NICs and Hugepages
 
 You may want to change the status of the NICs and reconfigure hugepages while the system is running. The following commands provide information to do so.
 
