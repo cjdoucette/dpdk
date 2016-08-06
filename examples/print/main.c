@@ -50,8 +50,6 @@ static const struct rte_eth_conf port_conf_default = {
 	.rxmode = { .max_rx_pkt_len = ETHER_MAX_LEN, },
 };
 
-static unsigned nb_ports;
-
 /*
  * Initialises a given port using global settings and with the rx buffers
  * coming from the mbuf_pool passed as parameter
@@ -110,34 +108,31 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 static  __attribute__((noreturn)) void
 lcore_main(void)
 {
-	uint8_t port;
+	uint8_t port = 1;
 
-	for (port = 0; port < nb_ports; port++)
-		if (rte_eth_dev_socket_id(port) > 0 &&
-				rte_eth_dev_socket_id(port) !=
-						(int)rte_socket_id())
-			printf("WARNING, port %u is on remote NUMA node to "
-					"polling thread.\n\tPerformance will "
-					"not be optimal.\n", port);
+	if (rte_eth_dev_socket_id(port) > 0 &&
+			rte_eth_dev_socket_id(port) !=
+					(int)rte_socket_id())
+		printf("WARNING, port %u is on remote NUMA node to "
+				"polling thread.\n\tPerformance will "
+				"not be optimal.\n", port);
 
 	printf("\nCore %u forwarding packets. [Ctrl+C to quit]\n",
 			rte_lcore_id());
 	for (;;) {
-		for (port = 0; port < nb_ports; port++) {
-			struct rte_mbuf *bufs[BURST_SIZE];
-			const uint16_t nb_rx = rte_eth_rx_burst(port, 0,
-					bufs, BURST_SIZE);
-			uint16_t buf;
+		struct rte_mbuf *bufs[BURST_SIZE];
+		const uint16_t nb_rx = rte_eth_rx_burst(port, 0,
+				bufs, BURST_SIZE);
+		uint16_t buf;
 
-			if (unlikely(nb_rx == 0))
-				continue;
+		if (unlikely(nb_rx == 0))
+			continue;
 
-			for (buf = 0; buf < nb_rx; buf++) {
-				struct rte_mbuf *mbuf = bufs[buf];
-				unsigned int len = rte_pktmbuf_data_len(mbuf);
-				rte_pktmbuf_dump(stdout, mbuf, len);
-				rte_pktmbuf_free(mbuf);
-			}
+		for (buf = 0; buf < nb_rx; buf++) {
+			struct rte_mbuf *mbuf = bufs[buf];
+			unsigned int len = rte_pktmbuf_data_len(mbuf);
+			rte_pktmbuf_dump(stdout, mbuf, len);
+			rte_pktmbuf_free(mbuf);
 		}
 	}
 }
@@ -147,7 +142,7 @@ int
 main(int argc, char *argv[])
 {
 	struct rte_mempool *mbuf_pool;
-	uint8_t portid;
+	uint8_t portid = 1;
 
 	/* init EAL */
 	int ret = rte_eal_init(argc, argv);
@@ -157,21 +152,16 @@ main(int argc, char *argv[])
 	argc -= ret;
 	argv += ret;
 
-	nb_ports = rte_eth_dev_count();
-	if (nb_ports < 2 || (nb_ports & 1))
-		rte_exit(EXIT_FAILURE, "Error: number of ports must be even\n");
-
 	mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL",
-		NUM_MBUFS * nb_ports, MBUF_CACHE_SIZE, 0,
+		NUM_MBUFS, MBUF_CACHE_SIZE, 0,
 		RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
 	if (mbuf_pool == NULL)
 		rte_exit(EXIT_FAILURE, "Cannot create mbuf pool\n");
 
 	/* initialize all ports */
-	for (portid = 0; portid < nb_ports; portid++)
-		if (port_init(portid, mbuf_pool) != 0)
-			rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu8"\n",
-					portid);
+	if (port_init(portid, mbuf_pool) != 0)
+		rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu8"\n",
+				portid);
 
 	if (rte_lcore_count() > 1)
 		printf("\nWARNING: Too much enabled lcores - "
