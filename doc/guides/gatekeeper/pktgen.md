@@ -77,6 +77,12 @@ The print application automatically runs on port 1, and can be run with this com
 
     $ sudo ./build/print -c 0x10 --socket-mem 256 --file-prefix print -b 83:00.0
 
+Back in the pktgen application, you could use `start 0` to send a lot of packets. A better demonstration is to send one packet (an ARP packet) using:
+
+    $ send arp req 0
+
+You should see the packet printed by the print application.
+
 ## Port Information
 
 It appears that the ports, physical locations, and addresses on the XIA server are:
