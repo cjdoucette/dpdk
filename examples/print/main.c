@@ -65,6 +65,7 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 	if (port >= rte_eth_dev_count())
 		return -1;
 
+	port_conf.rxmode.hw_vlan_strip = 0;
 	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
 	if (retval != 0)
 		return retval;
