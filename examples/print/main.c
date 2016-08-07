@@ -108,7 +108,7 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 static  __attribute__((noreturn)) void
 lcore_main(void)
 {
-	uint8_t port = 1;
+	uint8_t port = 0;
 
 	if (rte_eth_dev_socket_id(port) > 0 &&
 			rte_eth_dev_socket_id(port) !=
@@ -142,7 +142,7 @@ int
 main(int argc, char *argv[])
 {
 	struct rte_mempool *mbuf_pool;
-	uint8_t portid = 1;
+	uint8_t portid = 0;
 
 	/* init EAL */
 	int ret = rte_eal_init(argc, argv);
