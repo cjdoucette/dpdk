@@ -43,20 +43,17 @@
 
 #define VLAN_TAG 1000
 
-/*
- * The code can ignore needing to strip or insert VLAN tags, because
- * the hardware will take care of it. VLAN stripping and tagging can
- * be configured separately, but this sample application enables
- * both or disables both.
- */
-#define USE_VLAN_HARDWARE_OFFLOAD 1
+/* Set to 1 to enable VLAN stripping in hardware. */
+#define HW_STRIP_VLAN_TAG 0
 
-/*
- * The code can be configured to insert a VLAN tag on transmission
- * if this flag is set to 1. If it is, then the tag specified by
- * VLAN_TAG will be used.
- */
-#define INSERT_VLAN_TAG 1
+/* Set to 1 to enable VLAN insertion in hardware. */
+#define HW_INSERT_VLAN_TAG 0
+
+/* Set to 1 to enable VLAN stripping in software. */
+#define SW_STRIP_VLAN_TAG 0
+
+/* Set to 1 to enable VLAN insertion in software. */
+#define SW_INSERT_VLAN_TAG 1
 
 /*
  * If we know that we're going to insert an egress VLAN tag, we
@@ -64,13 +61,16 @@
  * then just overwrite the tag at the end. This avoids copying
  * memory back and forth.
  */
-#define KEEP_AND_OVERWRITE_VLAN 1
+#define KEEP_AND_OVERWRITE_VLAN 0
 
 static const struct rte_eth_conf port_conf_default = {
 	.rxmode = { .max_rx_pkt_len = ETHER_MAX_LEN, },
 };
 
 static unsigned nb_ports;
+
+#define RX_PORT	0
+#define TX_PORT	1
 
 static inline int
 vlan_id_is_invalid(uint16_t vlan_id)
@@ -81,6 +81,7 @@ vlan_id_is_invalid(uint16_t vlan_id)
 	return 1;
 }
 
+#if 0
 static void
 rx_vlan_strip_set(uint8_t port_id, int on)
 {
@@ -117,31 +118,17 @@ rx_vlan_strip_set_on_queue(uint8_t port_id, uint16_t queue_id, int on)
                "diag=%d\n", port_id, queue_id, on, diag);
 }
 
-static void
+static int
 tx_vlan_pvid_set(uint8_t port_id, uint16_t vlan_id, int on)
 {
-	if (!rte_eth_dev_is_valid_port(port_id))
-                return;
+	if (!rte_eth_dev_is_valid_port(port_id)) {
+		printf("err here\n");
+                return -1;
+	}
 
-        rte_eth_dev_set_vlan_pvid(port_id, vlan_id, on);
+        return rte_eth_dev_set_vlan_pvid(port_id, vlan_id, on);
 }
-
-static void
-vlan_tpid_set(uint8_t port_id, enum rte_vlan_type vlan_type, uint16_t tp_id)
-{
-        int diag;
-
-	if (!rte_eth_dev_is_valid_port(port_id))
-                return;
-
-        diag = rte_eth_dev_set_vlan_ether_type(port_id, vlan_type, tp_id);
-        if (diag == 0)
-                return;
-
-        printf("tx_vlan_tpid_set(port_pi=%d, vlan_type=%d, tpid=%d) failed "
-               "diag=%d\n",
-               port_id, vlan_type, tp_id, diag);
-}
+#endif
 
 /*
  * Initialises a given port using global settings and with the rx buffers
@@ -159,17 +146,17 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 		return -1;
 
 	/*
-	 * TODO Is it better to enable/disable hardware VLAN stripping/insertion
-	 * using rte_eth_dev_configure() or below? Can either be used? The
-	 * insert options claim to only be available for i40e NICs.
+	 * The calls below show how the port VLAN stripping and insertion
+	 * can be configured before the device is started
 	 */
-	if (USE_VLAN_HARDWARE_OFFLOAD) {
+	if (port == RX_PORT && HW_STRIP_VLAN_TAG) {
 		port_conf.rxmode.hw_vlan_strip = 1;
-		if (INSERT_VLAN_TAG) {
-			port_conf.txmode.hw_vlan_insert_pvid = 1;
-			port_conf.txmode.pvid = VLAN_TAG;
-		}
 	}
+	if (port == TX_PORT && HW_INSERT_VLAN_TAG) {
+		port_conf.txmode.hw_vlan_insert_pvid = 1;
+		port_conf.txmode.pvid = 0x03e8;
+	}
+
 	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
 	if (retval != 0)
 		return retval;
@@ -205,18 +192,18 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 	rte_eth_promiscuous_enable(port);
 
 	/*
-	 * TODO Is it better to enable/disable hardware VLAN stripping/insertion
-	 * here or above? Can either be used? If here, which of the following
-	 * calls are necessary?
+	 * The calls below show how the port VLAN stripping and insertion
+	 * can be configured *after* rte_eth_dev_start() has been called.
 	 */
-	if (USE_VLAN_HARDWARE_OFFLOAD) {
+#if 0
+	if (port == RX_PORT && HW_STRIP_VLAN_TAG) {
 		rx_vlan_strip_set(port, 1);
 		rx_vlan_strip_set_on_queue(port, 0, 1);
-		if (INSERT_VLAN_TAG) {
-			tx_vlan_pvid_set(port, VLAN_TAG, 1);
-			vlan_tpid_set(port, ETH_VLAN_TYPE_INNER, VLAN_TAG);
-		}
 	}
+	if (port == TX_PORT && HW_INSERT_VLAN_TAG) {
+		tx_vlan_pvid_set(port, VLAN_TAG, 1);
+	}
+#endif 
 
 	return 0;
 }
@@ -225,6 +212,28 @@ static void
 tx_packets(const uint8_t port, struct rte_mbuf **bufs, const uint16_t n)
 {
 	const uint16_t nb_tx = rte_eth_tx_burst(port, 0, bufs, n);
+	if (unlikely(nb_tx < n)) {
+		uint16_t buf;
+		for (buf = nb_tx; buf < n; buf++)
+			rte_pktmbuf_free(bufs[buf]);
+	}
+}
+
+static void
+insert_tx_packets(const uint8_t port, struct rte_mbuf **bufs, const uint16_t n)
+{
+	uint16_t nb_tx, i;
+	for (i = 0; i < n; i++) {
+		/* Insert VLAN tag. */
+		bufs[i]->ol_flags |= PKT_TX_VLAN_PKT;
+		bufs[i]->vlan_tci = VLAN_TAG;
+		if (rte_vlan_insert(&bufs[i]) != 0) {
+			/* XXX Would probably want to handle this. */
+			continue;
+		}
+	}
+
+        nb_tx = rte_eth_tx_burst(port, 0, bufs, n);
 	if (unlikely(nb_tx < n)) {
 		uint16_t buf;
 		for (buf = nb_tx; buf < n; buf++)
@@ -258,21 +267,21 @@ process_vlan(const uint8_t port, struct rte_mbuf **mbufs, const uint16_t nb_rx)
 {
 	struct ether_hdr *eth_hdr;
 	uint16_t ether_type, offset, i;
+
 	struct rte_mbuf *tx[nb_rx];
 	uint16_t nb_tx = 0;
 
 	for (i = 0; i < nb_rx; i++) {
-		bool vlan_present = false;
 
 		eth_hdr = rte_pktmbuf_mtod(mbufs[i], struct ether_hdr *);
 		ether_type = eth_hdr->ether_type;
 		if (ether_type == rte_cpu_to_be_16(ETHER_TYPE_VLAN)) {
-			vlan_present = true;
-			if (!KEEP_AND_OVERWRITE_VLAN) {
+			if (SW_STRIP_VLAN_TAG) {
 				if (rte_vlan_strip(mbufs[i]) != 0) {
 					rte_pktmbuf_free(mbufs[i]);
 					continue;
 				}
+				ether_type = eth_hdr->ether_type;
 			}
 		}
 
@@ -294,27 +303,27 @@ process_vlan(const uint8_t port, struct rte_mbuf **mbufs, const uint16_t nb_rx)
 		}
 
 		/* Add VLAN tag by insertion or overwriting. */
-		if (vlan_present) {
-			if (KEEP_AND_OVERWRITE_VLAN) {
-				/* Overwrite old VLAN tag with new one. */
-				struct vlan_hdr *vlan_hdr;
-				vlan_hdr = (struct vlan_hdr *)(eth_hdr + 1);
-				vlan_hdr->vlan_tci = rte_cpu_to_be_16(VLAN_TAG);
-			} else if (INSERT_VLAN_TAG) {
-				/* Insert VLAN tag. */
-				mbufs[i]->ol_flags |= PKT_TX_VLAN_PKT;
-				mbufs[i]->vlan_tci = VLAN_TAG;
-				if (rte_vlan_insert(&mbufs[i]) != 0) {
-					rte_pktmbuf_free(mbufs[i]);
-					continue;
-				}
+		if (ether_type == rte_cpu_to_be_16(ETHER_TYPE_VLAN) &&
+		    SW_INSERT_VLAN_TAG) {
+			/* Overwrite old VLAN tag with new one. */
+			struct vlan_hdr *vlan_hdr;
+			vlan_hdr = (struct vlan_hdr *)(eth_hdr + 1);
+			vlan_hdr->vlan_tci = rte_cpu_to_be_16(VLAN_TAG);
+		} else if (SW_INSERT_VLAN_TAG) {
+			/* Insert VLAN tag. */
+			mbufs[i]->ol_flags |= PKT_TX_VLAN_PKT;
+			mbufs[i]->vlan_tci = VLAN_TAG;
+			if (rte_vlan_insert(&mbufs[i]) != 0) {
+				rte_pktmbuf_free(mbufs[i]);
+				continue;
 			}
 		}
 
 		tx[nb_tx++] = mbufs[i];
 	}
 
-	tx_packets(port, tx, nb_tx);
+	(void)port;
+	tx_packets(TX_PORT, tx, nb_tx);
 }
 
 /*
@@ -345,7 +354,19 @@ lcore_main(void)
 			if (unlikely(nb_rx == 0))
 				continue;
 
-			if (USE_VLAN_HARDWARE_OFFLOAD)
+			uint16_t buf;
+
+			if (unlikely(nb_rx == 0))
+				continue;
+
+			for (buf = 0; buf < nb_rx; buf++) {
+				struct rte_mbuf *mbuf = bufs[buf];
+				unsigned int len = rte_pktmbuf_data_len(mbuf);
+				rte_pktmbuf_dump(stdout, mbuf, len);
+				rte_pktmbuf_free(mbuf);
+			}
+
+			if (HW_STRIP_VLAN_TAG && HW_INSERT_VLAN_TAG)
 				/*
 				 * You could do some processing on the
 				 * packets first, but then just transmit them.
@@ -353,7 +374,9 @@ lcore_main(void)
 				 * the VLAN tag before we see the packets, and
 				 * will add a tag after we're done.
 				 */
-				tx_packets(port, bufs, nb_rx);
+				tx_packets(TX_PORT, bufs, nb_rx);
+			else if (HW_STRIP_VLAN_TAG && SW_INSERT_VLAN_TAG)
+				insert_tx_packets(TX_PORT, bufs, nb_rx);
 			else
 				/* Do some processing on the packets while
 				 * keeping the VLAN header in mind. We can
@@ -371,7 +394,6 @@ int
 main(int argc, char *argv[])
 {
 	struct rte_mempool *mbuf_pool;
-	uint8_t portid;
 
 	/* init EAL */
 	int ret = rte_eal_init(argc, argv);
@@ -385,8 +407,8 @@ main(int argc, char *argv[])
 		rte_exit(EXIT_FAILURE, "Error with VLAN tag\n");
 
 	nb_ports = rte_eth_dev_count();
-	if (nb_ports < 2 || (nb_ports & 1))
-		rte_exit(EXIT_FAILURE, "Error: number of ports must be even\n");
+	if (nb_ports != 2)
+		rte_exit(EXIT_FAILURE, "Need two ports\n");
 
 	mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL",
 		NUM_MBUFS * nb_ports, MBUF_CACHE_SIZE, 0,
@@ -395,10 +417,11 @@ main(int argc, char *argv[])
 		rte_exit(EXIT_FAILURE, "Cannot create mbuf pool\n");
 
 	/* initialize all ports */
-	for (portid = 0; portid < nb_ports; portid++)
-		if (port_init(portid, mbuf_pool) != 0)
-			rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu8"\n",
-					portid);
+	if (port_init(RX_PORT, mbuf_pool) != 0)
+		rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu8"\n", RX_PORT);
+
+	if (port_init(TX_PORT, mbuf_pool) != 0)
+		rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu8"\n", TX_PORT);
 
 	if (rte_lcore_count() > 1)
 		printf("\nWARNING: Too much enabled lcores - "
