@@ -59,6 +59,28 @@ To see the packets that are transmitted (to check where the VLAN tag was inserte
 
     $ sudo ./build/print -c 0x10 --socket-mem 256 --file-prefix print -b 83:00.0 -b 85:00.0 -b 85:00.1
 
+## Configuring Hardware Features
+
+VLAN stripping and insertion can be configured for the call to `rte_eth_dev_configure` or can be set after the device has been started. See main.c for an example.
+
+When configuring the hardware after the device has been started, you have the option to enable or disable the VLAN features on a per-port or per-queue basis. When trying to do both (i.e. disable on all queues of a port except for one), then the order in which you do the configuration matters. By testing, I've found:
+
+    disable stripping on port
+    enable stripping on queue
+    result: VLAN stripped for that queue
+
+    enable stripping on queue
+    disable stripping on port
+    result: VLAN stripped for that queue
+
+    enable stripping on port
+    disable stripping on queue
+    result: VLAN *not* stripped for that queue
+
+    disable stripping on queue
+    enable stripping on port
+    result: VLAN stripped for that queue
+
 ## Known Issues
 
 DPDK does not support VLAN insertion using the ixgbe driver.

@@ -197,6 +197,11 @@ port_init(uint8_t port, struct rte_mempool *mbuf_pool)
 	 */
 #if 0
 	if (port == RX_PORT && HW_STRIP_VLAN_TAG) {
+		/*
+		 * XXX In some cases, the order in which these calls
+		 * are invoked can matter. See the README for more
+		 * information.
+		 */
 		rx_vlan_strip_set(port, 1);
 		rx_vlan_strip_set_on_queue(port, 0, 1);
 	}
