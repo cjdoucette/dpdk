@@ -51,7 +51,7 @@ fib_get_ipv4_dst_port(void *ipv4_hdr, uint8_t portid)
 #endif
 
 void fib_setup(const int socketid);
-inline int fib_add_route(uint32_t ip, uint8_t depth, uint8_t if_out);
-inline int fib_del_route(uint32_t ip, uint8_t depth);
+int fib_add_route(uint32_t ip, uint8_t depth, uint8_t if_out);
+int fib_del_route(uint32_t ip, uint8_t depth);
 
 #endif /* __FIB_H__ */

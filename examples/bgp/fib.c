@@ -157,13 +157,13 @@ fib_setup(const int socketid)
 			 socketid);
 }
 
-inline int
+int
 fib_add_route(uint32_t ip, uint8_t depth, uint8_t if_out)
 {
 	return rte_lpm_add(fib, ip, depth, if_out);
 }
 
-inline int
+int
 fib_del_route(uint32_t ip, uint8_t depth)
 {
 	return rte_lpm_delete(fib, ip, depth);
