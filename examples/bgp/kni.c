@@ -17,7 +17,6 @@
 static int kni_change_mtu(uint8_t port_id, unsigned new_mtu);
 static int kni_config_network_interface(uint8_t port_id, uint8_t if_up);
 
-/* Initialize KNI subsystem */
 void
 init_kni(void)
 {
@@ -56,15 +55,11 @@ kni_free_kni(uint8_t port_id)
 }
 
 void
-kni_release(uint8_t nb_sys_ports)
+kni_release(uint8_t port)
 {
 	unsigned i;
-	uint8_t port;
 
-	/* Release resources */
-	for (port = 0; port < nb_sys_ports; port++) {
-		kni_free_kni(port);
-	}
+	kni_free_kni(port);
 
 #ifdef RTE_LIBRTE_XEN_DOM0
 	rte_kni_close();

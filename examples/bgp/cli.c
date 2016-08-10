@@ -10,11 +10,9 @@
 static void
 print_usage(const char *prgname)
 {
-	RTE_LOG(INFO, APP, "\nUsage: %s [EAL options] -- -p PORTMASK -P "
+	RTE_LOG(INFO, APP, "\nUsage: %s [EAL options] -- "
 		   "[--config (port,lcore_rx,lcore_tx,lcore_kthread...)"
 		   "[,(port,lcore_rx,lcore_tx,lcore_kthread...)]]\n"
-		   "    -p PORTMASK: hex bitmask of ports to use\n"
-		   "    -P : enable promiscuous mode\n"
 		   "    --config (port,lcore_rx,lcore_tx,lcore_kthread...): "
 		   "port and lcore configurations\n",
 	           prgname);
@@ -150,5 +148,3 @@ parse_args(int argc, char **argv)
 
 	return ret;
 }
-
-

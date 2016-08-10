@@ -43,31 +43,24 @@
 #include "fib.h"
 #include "common.h"
 
+/* BGP task application parameters. */
+#define PORT		0
 #define KNI_IP_ADDR	"192.168.57.12"
 #define TCP_BGP_PORT	179
 
-/* Size of the data buffer in each mbuf */
-#define MBUF_DATA_SZ (MAX_PACKET_SZ + RTE_PKTMBUF_HEADROOM)
-
-/* Number of mbufs in mempool that is created */
+/* Parameters for the mbuf pool. */
+#define MBUF_DATA_SZ		(MAX_PACKET_SZ + RTE_PKTMBUF_HEADROOM)
 #define NB_MBUF                 (8192 * 16)
-
-/* How many packets to attempt to read from NIC in one go */
-#define PKT_BURST_SZ            32
-
-/* How many objects (mbufs) to keep in per-lcore mempool cache */
 #define MEMPOOL_CACHE_SZ        PKT_BURST_SZ
 
-/* Number of RX ring descriptors */
+/* RX/TX parameters. */
+#define PKT_BURST_SZ            32
 #define NB_RXD                  128
-
-/* Number of TX ring descriptors */
 #define NB_TXD                  512
 
 struct kni_port_params *kni_port_params_array[RTE_MAX_ETHPORTS];
 static rte_atomic32_t kni_stop = RTE_ATOMIC32_INIT(0);
 
-int promiscuous_on = 1;
 struct rte_mempool *pktmbuf_pool = NULL;
 
 struct rte_eth_conf port_conf = {
@@ -95,12 +88,6 @@ struct rte_eth_conf port_conf = {
 		},
 	},
 };
-
-uint64_t dest_eth_addr[RTE_MAX_ETHPORTS];
-struct ether_addr ports_eth_addr[RTE_MAX_ETHPORTS];
-
-/* TODO: needed? Socket for receiving updates from BGP daemon. */
-//static struct mnl_socket *nl;
 
 static void
 kni_burst_free_mbufs(struct rte_mbuf **pkts, unsigned num)
@@ -286,65 +273,7 @@ init_port(uint8_t port)
 		rte_exit(EXIT_FAILURE, "Could not start port%u (%d)\n",
 						(unsigned)port, ret);
 
-	if (promiscuous_on)
-		rte_eth_promiscuous_enable(port);
-}
-
-#define CHECK_INTERVAL 100 /* 100ms */
-#define MAX_CHECK_TIME 90 /* 9s (90 * 100ms) in total */
-
-/* Check the link status of all ports in up to 9s, and print them finally */
-static void
-check_link_status(uint8_t portid)
-{
-	uint8_t count, all_ports_up, print_flag = 0;
-	struct rte_eth_link link;
-
-	printf("\nChecking link status\n");
-	fflush(stdout);
-
-	for (count = 0; count <= MAX_CHECK_TIME; count++) {
-		all_ports_up = 1;
-
-		memset(&link, 0, sizeof(link));
-		rte_eth_link_get_nowait(portid, &link);
-
-		/* print link status if flag set */
-		if (print_flag == 1) {
-			if (link.link_status)
-				printf("Port %d Link Up - speed %u "
-					"Mbps - %s\n", (uint8_t)portid,
-					(unsigned)link.link_speed,
-			(link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
-				("full-duplex") : ("half-duplex\n"));
-			else
-				printf("Port %d Link Down\n",
-					(uint8_t)portid);
-			continue;
-		}
-
-		/* clear all_ports_up flag if any link down */
-		if (link.link_status == ETH_LINK_DOWN) {
-			all_ports_up = 0;
-			break;
-		}
-
-		/* after finally printing all link status, get out */
-		if (print_flag == 1)
-			break;
-
-		if (all_ports_up == 0) {
-			printf(".");
-			fflush(stdout);
-			rte_delay_ms(CHECK_INTERVAL);
-		}
-
-		/* set the print_flag if all ports up or timeout */
-		if (all_ports_up == 1 || count == (MAX_CHECK_TIME - 1)) {
-			print_flag = 1;
-			printf("done\n");
-		}
-	}
+	rte_eth_promiscuous_enable(port);
 }
 
 static int
@@ -398,8 +327,6 @@ bgp_receiver(__rte_unused void *arg)
 		RTE_LOG(INFO, APP, "Lcore %u has nothing to do\n", lcore_id);
 
 	return 0;
-
-
 }
 
 static int
@@ -491,9 +418,8 @@ setup_bgp_filter(uint8_t port_id)
 int
 main(int argc, char** argv)
 {
-	int ret;
-	uint8_t nb_sys_ports;
 	unsigned i;
+	int ret;
 
 	/* Initialise EAL */
 	ret = rte_eal_init(argc, argv);
@@ -502,12 +428,12 @@ main(int argc, char** argv)
 	argc -= ret;
 	argv += ret;
 
-	/* Parse application arguments (after the EAL ones) */
+	/* Parse application arguments (after the EAL ones). */
 	ret = parse_args(argc, argv);
 	if (ret < 0)
 		rte_exit(EXIT_FAILURE, "Could not parse input parameters\n");
 
-	/* Create the mbuf pool */
+	/* Create the mbuf pool. */
 	pktmbuf_pool = rte_pktmbuf_pool_create("mbuf_pool", NB_MBUF,
 		MEMPOOL_CACHE_SZ, 0, MBUF_DATA_SZ, rte_socket_id());
 	if (pktmbuf_pool == NULL) {
@@ -515,26 +441,11 @@ main(int argc, char** argv)
 		return -1;
 	}
 
-	/* Get number of ports found in scan */
-	nb_sys_ports = rte_eth_dev_count();
-	if (nb_sys_ports == 0)
-		rte_exit(EXIT_FAILURE, "No supported Ethernet device found\n");
-
-	/* Check if the configured port ID is valid */
-	for (i = 0; i < RTE_MAX_ETHPORTS; i++)
-		if (kni_port_params_array[i] && i >= nb_sys_ports)
-			rte_exit(EXIT_FAILURE, "Configured invalid "
-						"port ID %u\n", i);
-
-	/* Initialize KNI subsystem */
 	init_kni();
+	init_port(PORT);
+	kni_alloc(PORT);
 
-	/* Initialise each port */
-	init_port(0);
-	kni_alloc(0);
-	check_link_status(0);
-
-	if (setup_bgp_filter(0)) {
+	if (setup_bgp_filter(PORT)) {
 		printf("could not initialize BGP filter\n");
 		return -1;
 	}
@@ -546,7 +457,7 @@ main(int argc, char** argv)
 	 * For this example, we'll just use one pool of packets and
 	 * one lookup table.
 	 */
-	fib_setup(0);
+	fib_setup(PORT);
 
 	/* Launch per-lcore function on every lcore */
 
@@ -566,7 +477,7 @@ main(int argc, char** argv)
 			return -1;
 	}
 
-	kni_release(nb_sys_ports);
+	kni_release(PORT);
 
 	return 0;
 }
