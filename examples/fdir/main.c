@@ -119,7 +119,8 @@ add_fdir_filter(uint8_t port_id)
 		RTE_ETH_FILTER_ADD, &entry);
 
 /*
-	ret = rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_FDIR,			RTE_ETH_FILTER_DELETE, &entry);
+	ret = rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_FDIR,
+		RTE_ETH_FILTER_DELETE, &entry);
 	ret = rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_FDIR,
 		RTE_ETH_FILTER_UPDATE, &entry);
 */
