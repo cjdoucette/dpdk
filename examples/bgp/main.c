@@ -67,7 +67,6 @@
 struct kni_port_params *kni_port_params_array[RTE_MAX_ETHPORTS];
 static rte_atomic32_t kni_stop = RTE_ATOMIC32_INIT(0);
 
-uint32_t ports_mask = 0;
 int promiscuous_on = 1;
 struct rte_mempool *pktmbuf_pool = NULL;
 
@@ -291,43 +290,45 @@ init_port(uint8_t port)
 		rte_eth_promiscuous_enable(port);
 }
 
-/* Check the link status of all ports in up to 9s, and print them finally */
-static void
-check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
-{
 #define CHECK_INTERVAL 100 /* 100ms */
 #define MAX_CHECK_TIME 90 /* 9s (90 * 100ms) in total */
-	uint8_t portid, count, all_ports_up, print_flag = 0;
+
+/* Check the link status of all ports in up to 9s, and print them finally */
+static void
+check_link_status(uint8_t portid)
+{
+	uint8_t count, all_ports_up, print_flag = 0;
 	struct rte_eth_link link;
 
 	printf("\nChecking link status\n");
 	fflush(stdout);
+
 	for (count = 0; count <= MAX_CHECK_TIME; count++) {
 		all_ports_up = 1;
-		for (portid = 0; portid < port_num; portid++) {
-			if ((port_mask & (1 << portid)) == 0)
-				continue;
-			memset(&link, 0, sizeof(link));
-			rte_eth_link_get_nowait(portid, &link);
-			/* print link status if flag set */
-			if (print_flag == 1) {
-				if (link.link_status)
-					printf("Port %d Link Up - speed %u "
-						"Mbps - %s\n", (uint8_t)portid,
-						(unsigned)link.link_speed,
-				(link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
-					("full-duplex") : ("half-duplex\n"));
-				else
-					printf("Port %d Link Down\n",
-						(uint8_t)portid);
-				continue;
-			}
-			/* clear all_ports_up flag if any link down */
-			if (link.link_status == ETH_LINK_DOWN) {
-				all_ports_up = 0;
-				break;
-			}
+
+		memset(&link, 0, sizeof(link));
+		rte_eth_link_get_nowait(portid, &link);
+
+		/* print link status if flag set */
+		if (print_flag == 1) {
+			if (link.link_status)
+				printf("Port %d Link Up - speed %u "
+					"Mbps - %s\n", (uint8_t)portid,
+					(unsigned)link.link_speed,
+			(link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
+				("full-duplex") : ("half-duplex\n"));
+			else
+				printf("Port %d Link Down\n",
+					(uint8_t)portid);
+			continue;
 		}
+
+		/* clear all_ports_up flag if any link down */
+		if (link.link_status == ETH_LINK_DOWN) {
+			all_ports_up = 0;
+			break;
+		}
+
 		/* after finally printing all link status, get out */
 		if (print_flag == 1)
 			break;
@@ -491,7 +492,7 @@ int
 main(int argc, char** argv)
 {
 	int ret;
-	uint8_t nb_sys_ports, port;
+	uint8_t nb_sys_ports;
 	unsigned i;
 
 	/* Initialise EAL */
@@ -529,19 +530,9 @@ main(int argc, char** argv)
 	init_kni();
 
 	/* Initialise each port */
-	for (port = 0; port < nb_sys_ports; port++) {
-		/* Skip ports that are not enabled */
-		if (!(ports_mask & (1 << port)))
-			continue;
-		init_port(port);
-
-		if (port >= RTE_MAX_ETHPORTS)
-			rte_exit(EXIT_FAILURE, "Can not use more than "
-				"%d ports for kni\n", RTE_MAX_ETHPORTS);
-
-		kni_alloc(port);
-	}
-	check_all_ports_link_status(nb_sys_ports, ports_mask);
+	init_port(0);
+	kni_alloc(0);
+	check_link_status(0);
 
 	if (setup_bgp_filter(0)) {
 		printf("could not initialize BGP filter\n");

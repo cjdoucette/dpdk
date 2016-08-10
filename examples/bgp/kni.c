@@ -63,8 +63,6 @@ kni_release(uint8_t nb_sys_ports)
 
 	/* Release resources */
 	for (port = 0; port < nb_sys_ports; port++) {
-		if (!(ports_mask & (1 << port)))
-			continue;
 		kni_free_kni(port);
 	}
 

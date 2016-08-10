@@ -20,38 +20,6 @@ print_usage(const char *prgname)
 	           prgname);
 }
 
-/* Convert string to unsigned number. 0 is returned if error occurs */
-static uint32_t
-parse_unsigned(const char *portmask)
-{
-	char *end = NULL;
-	unsigned long num;
-
-	num = strtoul(portmask, &end, 16);
-	if ((portmask[0] == '\0') || (end == NULL) || (*end != '\0'))
-		return 0;
-
-	return (uint32_t)num;
-}
-
-static void
-print_config(void)
-{
-	uint32_t i, j;
-	struct kni_port_params **p = kni_port_params_array;
-
-	for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
-		if (!p[i])
-			continue;
-		RTE_LOG(DEBUG, APP, "Port ID: %d\n", p[i]->port_id);
-		RTE_LOG(DEBUG, APP, "Rx lcore ID: %u, Tx lcore ID: %u\n",
-					p[i]->lcore_rx, p[i]->lcore_tx);
-		for (j = 0; j < p[i]->nb_lcore_k; j++)
-			RTE_LOG(DEBUG, APP, "Kernel thread lcore ID: %u\n",
-							p[i]->lcore_k[j]);
-	}
-}
-
 static int
 parse_config(const char *arg)
 {
@@ -128,7 +96,6 @@ parse_config(const char *arg)
 						(uint8_t)int_fld[i];
 		kni_port_params_array[port_id]->nb_lcore_k = j;
 	}
-	print_config();
 
 	return 0;
 
@@ -141,41 +108,6 @@ fail:
 	}
 
 	return -1;
-}
-
-static int
-validate_parameters(uint32_t portmask)
-{
-	uint32_t i;
-
-	if (!portmask) {
-		printf("No port configured in port mask\n");
-		return -1;
-	}
-
-	for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
-		if (((portmask & (1 << i)) && !kni_port_params_array[i]) ||
-			(!(portmask & (1 << i)) && kni_port_params_array[i]))
-			rte_exit(EXIT_FAILURE, "portmask is not consistent "
-				"to port ids specified in --config\n");
-
-		if (kni_port_params_array[i] && !rte_lcore_is_enabled(\
-			(unsigned)(kni_port_params_array[i]->lcore_rx)))
-			rte_exit(EXIT_FAILURE, "lcore id %u for "
-					"port %d receiving not enabled\n",
-					kni_port_params_array[i]->lcore_rx,
-					kni_port_params_array[i]->port_id);
-
-		if (kni_port_params_array[i] && !rte_lcore_is_enabled(\
-			(unsigned)(kni_port_params_array[i]->lcore_tx)))
-			rte_exit(EXIT_FAILURE, "lcore id %u for "
-					"port %d transmitting not enabled\n",
-					kni_port_params_array[i]->lcore_tx,
-					kni_port_params_array[i]->port_id);
-
-	}
-
-	return 0;
 }
 
 #define CMDLINE_OPT_CONFIG  "config"
@@ -198,12 +130,6 @@ parse_args(int argc, char **argv)
 	while ((opt = getopt_long(argc, argv, "p:P", longopts,
 						&longindex)) != EOF) {
 		switch (opt) {
-		case 'p':
-			ports_mask = parse_unsigned(optarg);
-			break;
-		case 'P':
-			promiscuous_on = 1;
-			break;
 		case 0:
 			if (!strncmp(longopts[longindex].name,
 				     CMDLINE_OPT_CONFIG,
@@ -220,12 +146,6 @@ parse_args(int argc, char **argv)
 			print_usage(prgname);
 			rte_exit(EXIT_FAILURE, "Invalid option specified\n");
 		}
-	}
-
-	/* Check that options were parsed ok */
-	if (validate_parameters(ports_mask) < 0) {
-		print_usage(prgname);
-		rte_exit(EXIT_FAILURE, "Invalid parameters\n");
 	}
 
 	return ret;
