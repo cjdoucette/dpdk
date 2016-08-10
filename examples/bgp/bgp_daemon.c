@@ -48,7 +48,7 @@
  * For this sample BGP daemon, we'll copy "add," "change," and "delete."
  */
 
-#define IFNAME	"vEth1_0"
+#define IFNAME	"vEth0_0"
 #define DST	"1.2.3.4"
 #define GW	"5.6.7.8"
 #define PREFIX	32
@@ -70,7 +70,7 @@ send_eth_frame(void)
         struct rtmsg *rtm;
         uint32_t prefix = PREFIX, seq;
 	in_addr_t dst, gw;
-        int iface, family = AF_INET;
+        int family = AF_INET;
 
 	buf = malloc(MNL_SOCKET_BUFFER_SIZE);
 	if (!buf) {
@@ -117,7 +117,6 @@ send_eth_frame(void)
 	}
 
 	prefix = PREFIX;
-	iface = ifr.ifr_ifindex;
 
 	nlh = mnl_nlmsg_put_header(buf + len);
 	nlh->nlmsg_type = RTM_NEWROUTE;

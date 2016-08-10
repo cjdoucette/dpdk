@@ -45,6 +45,8 @@
 
 /* BGP task application parameters. */
 #define PORT		0
+#define BGP_RX_QUEUE	1
+
 #define KNI_IP_ADDR	"192.168.57.12"
 #define TCP_BGP_PORT	179
 
@@ -121,7 +123,8 @@ kni_ingress(struct kni_port_params *p)
 	port_id = p->port_id;
 	for (i = 0; i < nb_kni; i++) {
 		/* Burst rx from eth */
-		nb_rx = rte_eth_rx_burst(port_id, 0, pkts_burst, PKT_BURST_SZ);
+		nb_rx = rte_eth_rx_burst(port_id, BGP_RX_QUEUE, pkts_burst,
+			PKT_BURST_SZ);
 		if (unlikely(nb_rx > PKT_BURST_SZ)) {
 			RTE_LOG(ERR, APP, "Error receiving from eth\n");
 			return;
@@ -190,7 +193,7 @@ kni_egress(struct kni_port_params *p)
 }
 
 static int
-main_loop(__rte_unused void *arg)
+control_plane_support(__rte_unused void *arg)
 {
 	uint8_t i, nb_ports = rte_eth_dev_count();
 	int32_t f_stop;
@@ -251,7 +254,9 @@ init_port(uint8_t port)
 	/* Initialise device and RX/TX queues */
 	RTE_LOG(INFO, APP, "Initialising port %u ...\n", (unsigned)port);
 	fflush(stdout);
-	ret = rte_eth_dev_configure(port, 1, 1, &port_conf);
+
+	/* Make two RX queues. */
+	ret = rte_eth_dev_configure(port, 2, 1, &port_conf);
 	if (ret < 0)
 		rte_exit(EXIT_FAILURE, "Could not configure port%u (%d)\n",
 		            (unsigned)port, ret);
@@ -259,7 +264,13 @@ init_port(uint8_t port)
 	ret = rte_eth_rx_queue_setup(port, 0, NB_RXD,
 		rte_eth_dev_socket_id(port), NULL, pktmbuf_pool);
 	if (ret < 0)
-		rte_exit(EXIT_FAILURE, "Could not setup up RX queue for "
+		rte_exit(EXIT_FAILURE, "Could not setup up RX queue 0 for "
+				"port%u (%d)\n", (unsigned)port, ret);
+
+	ret = rte_eth_rx_queue_setup(port, 1, NB_RXD,
+		rte_eth_dev_socket_id(port), NULL, pktmbuf_pool);
+	if (ret < 0)
+		rte_exit(EXIT_FAILURE, "Could not setup up RX queue 1 for "
 				"port%u (%d)\n", (unsigned)port, ret);
 
 	ret = rte_eth_tx_queue_setup(port, 0, NB_TXD,
@@ -274,88 +285,6 @@ init_port(uint8_t port)
 						(unsigned)port, ret);
 
 	rte_eth_promiscuous_enable(port);
-}
-
-static int
-bgp_receiver(__rte_unused void *arg)
-{
-	uint8_t i, nb_ports = rte_eth_dev_count();
-	int32_t f_stop;
-	const unsigned lcore_id = rte_lcore_id();
-	enum lcore_rxtx {
-		LCORE_NONE,
-		LCORE_RX,
-		LCORE_TX,
-		LCORE_MAX
-	};
-	enum lcore_rxtx flag = LCORE_NONE;
-
-	for (i = 0; i < nb_ports; i++) {
-		if (!kni_port_params_array[i])
-			continue;
-		if (kni_port_params_array[i]->lcore_rx == (uint8_t)lcore_id) {
-			flag = LCORE_RX;
-			break;
-		} else if (kni_port_params_array[i]->lcore_tx ==
-						(uint8_t)lcore_id) {
-			flag = LCORE_TX;
-			break;
-		}
-	}
-
-	if (flag == LCORE_RX) {
-		RTE_LOG(INFO, APP, "Lcore %u is reading from port %d\n",
-					kni_port_params_array[i]->lcore_rx,
-					kni_port_params_array[i]->port_id);
-		while (1) {
-			f_stop = rte_atomic32_read(&kni_stop);
-			if (f_stop)
-				break;
-			kni_ingress(kni_port_params_array[i]);
-		}
-	} else if (flag == LCORE_TX) {
-		RTE_LOG(INFO, APP, "Lcore %u is writing to port %d\n",
-					kni_port_params_array[i]->lcore_tx,
-					kni_port_params_array[i]->port_id);
-		while (1) {
-			f_stop = rte_atomic32_read(&kni_stop);
-			if (f_stop)
-				break;
-			kni_egress(kni_port_params_array[i]);
-		}
-	} else
-		RTE_LOG(INFO, APP, "Lcore %u has nothing to do\n", lcore_id);
-
-	return 0;
-}
-
-static int
-remote_launch_except_special(int (*f)(void *), void *arg,
-			     enum rte_rmt_call_master_t call_master,
-			     int special_lcore)
-{
-	int lcore_id;
-	int master = rte_get_master_lcore();
-
-	/* Check state of lcores. */
-	RTE_LCORE_FOREACH_SLAVE(lcore_id) {
-		if (lcore_config[lcore_id].state != WAIT)
-			return -EBUSY;
-	}
-
-	/* Send messages to cores, launching special function. */
-	RTE_LCORE_FOREACH_SLAVE(lcore_id) {
-		if (lcore_id != special_lcore)
-			rte_eal_remote_launch(f, arg, lcore_id);
-	}
-	rte_eal_remote_launch(&bgp_receiver, arg, special_lcore);
-
-	if (call_master == CALL_MASTER) {
-		lcore_config[master].ret = f(arg);
-		lcore_config[master].state = FINISHED;
-	}
-
-	return 0;
 }
 
 static int
@@ -391,7 +320,7 @@ setup_bgp_filter(uint8_t port_id)
 	entry.action.behavior = RTE_ETH_FDIR_ACCEPT;
 	entry.action.flex_off = 0;  /* Use 0 by default. */
 	entry.action.report_status = RTE_ETH_FDIR_REPORT_ID;
-	entry.action.rx_queue = 127;
+	entry.action.rx_queue = BGP_RX_QUEUE;
 
 	entry.soft_id = 0;
 
@@ -460,17 +389,7 @@ main(int argc, char** argv)
 	fib_setup(PORT);
 
 	/* Launch per-lcore function on every lcore */
-
-	/*
-	 * This would launch same loop on every lcore:
-	 *   rte_eal_mp_remote_launch(main_loop, NULL, CALL_MASTER);
-	 *
-	 * But for this application we want most lcores running the same
-	 * loop, but need one lcore to run a different loop. No easy way
-	 * to do this using that function, so we use our own version.
-	 */
-	remote_launch_except_special(main_loop, NULL, CALL_MASTER,
-				     rte_get_next_lcore(0, 1, 0));
+	rte_eal_mp_remote_launch(control_plane_support, NULL, CALL_MASTER);
 
 	RTE_LCORE_FOREACH_SLAVE(i) {
 		if (rte_eal_wait_lcore(i) < 0)

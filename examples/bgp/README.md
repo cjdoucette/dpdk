@@ -29,11 +29,11 @@ And issue the `make` command:
 
 The application can be run with:
 
-    $ sudo ./build/bgp -c 0x3 -n 4 -- -P -p 0x2 --config "(1,0,1,2)"
+    $ sudo ./build/bgp -c 0x3 -b 83:00.1 -b 85:00.0 -b 85:00.1 --socket-mem 256 --file-prefix bgp -- --config "(0,0,1,2)"
 
-In a separate terminal in the VM, configure the newly-created kernel interface:
+In a separate terminal, configure the newly-created kernel interface:
 
-    $ sudo ifconfig vEth1_0 192.168.57.12 netmask 255.255.255.0 up
+    $ sudo ifconfig vEth0_0 192.168.57.12 netmask 255.255.255.0 up
 
 In this second terminal, go to the `examples/bgp` directory and build the sample BGP daemon:
 
@@ -49,10 +49,22 @@ You can then generate packets using the instructions below, observing that packe
 
 ## Packet Generation
 
-The sample stream file `bgp_to_dpdk` can be opened in Ostinato and run to cause the DPDK code to forward the packet to the BGP daemon. Note that this is not a valid BGP stream -- it would need to initialize a TCP connection and send actual BGP messages. Instead, it's just a packet that uses TCP and port 179 (BGP) to demonstrate how to direct BGP flows and deliver them to the BGP daemon.
+You can use the `pktgen` application to generate BGP packets. In a third terminal, issue this command:
+
+    $ sudo ./pktgen -c 70 --socket-mem 256 --file-prefix pg -b 83:00.0 -b 83:00.1 -b 85:00.1 -- -T -P -m "[5:6].0"
+
+And when `pktgen` starts, change the packets in this way:
+
+    Pktgen> set 0 count 1
+    Pktgen> set 0 dport 179
+    Pktgen> set ip dst 0 192.168.57.12
+
+Then send a BGP packet with:
+
+    Pktgen> start 0
 
 ## Known Issues
 
-The first issue is that the sample packet, `bgp_to_dpdk`, uses the broadcast Ethernet address for its destination MAC address. This is because even after enabling promiscuous mode on all ports (DPDK and kernel), I could not get a packet to go all the way from the client, through the DPDK port, and onto the kernel port. The packet seemed to get lost in the kernel, and was never delivered to the application. This could have to do with the fact that the application is using a raw socket to listen for *all* TCP packets. In any case, once a real BGP daemon is deployed, we'll need to make sure that with promiscuous mode enabled the BGP packet is able to make it from peer --> DPDK --> daemon without the broadcast destination address.
+The allocation of threads needs to be done dynamically.
 
-The other issue is that since the virtual NIC in VirtualBox does not support multiple receiving queues, I haven't fully tested the ability of the flow director (just referred to as a "filter" in DPDK now) to assign to one of many queues on a port, where a special lcore is pinned to that queue.
+The only way I could get the fake BGP daemon to receive packets was to have it receive *all* TCP packets and drop non-BGP packets.
