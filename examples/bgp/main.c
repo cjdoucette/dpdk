@@ -82,6 +82,19 @@ struct rte_eth_conf port_conf = {
 	.txmode = {
 		.mq_mode = ETH_MQ_TX_NONE,
 	},
+	.fdir_conf = {
+		.mode = RTE_FDIR_MODE_PERFECT,
+		.pballoc = RTE_FDIR_PBALLOC_64K,
+		.status = RTE_FDIR_REPORT_STATUS,
+		.drop_queue = 127,
+		.mask = {
+			.ipv4_mask = {
+				.dst_ip = 0xFFFFFFFF,
+				.proto = 0xFF,
+			},
+			.dst_port_mask = 0xFFFF,
+		},
+	},
 };
 
 uint64_t dest_eth_addr[RTE_MAX_ETHPORTS];
@@ -418,33 +431,21 @@ remote_launch_except_special(int (*f)(void *), void *arg,
 }
 
 static int
-setup_bgp_filter(void)
+setup_bgp_filter(uint8_t port_id)
 {
-	/* XXX In an environment with more than one queue, we should create
-	 * additional RX queues for the port on which BGP packets will
-	 * be received (via rte_eth_dev_configure()), and use that queue
-	 * identifier here. Then, use rte_eal_remote_launch() to start
-	 * an lcore that polls that queue.
-	 */
-	struct rte_eth_ntuple_filter bgp_filter = {
-		.flags = RTE_2TUPLE_FLAGS,
-		.dst_ip = 0, /* Set below. */
-		.dst_ip_mask = UINT32_MAX,
-		.src_ip = 0,
-		.src_ip_mask = 0,
-		.dst_port = TCP_BGP_PORT,
-		.dst_port_mask = UINT16_MAX,
-		.src_port = 0,
-		.src_port_mask = 0,
-		.proto = IPPROTO_TCP,
-		.proto_mask = UINT8_MAX,
-		.tcp_flags = 0,
-		.priority = 1, /* Lowest */
-		.queue = 0,
-	};
-
+	struct rte_eth_fdir_filter entry;
 	uint32_t kni_ip_addr;
-	int ret = inet_pton(AF_INET, KNI_IP_ADDR, &kni_ip_addr);
+	int ret = 0;
+
+	ret = rte_eth_dev_filter_supported(port_id, RTE_ETH_FILTER_FDIR);
+	if (ret < 0) {
+		printf("flow director is not supported on port %u.\n",
+			port_id);
+		return -1;
+	}
+	memset(&entry, 0, sizeof(struct rte_eth_fdir_filter));
+
+	ret = inet_pton(AF_INET, KNI_IP_ADDR, &kni_ip_addr);
 	if (ret == 0) {
 		printf("%s is not a valid address in AF_INET\n", KNI_IP_ADDR);
 		return -1;
@@ -453,9 +454,36 @@ setup_bgp_filter(void)
 		return -1;
 	}
 
-	bgp_filter.dst_ip = kni_ip_addr;
-	return rte_eth_dev_filter_ctrl(1, RTE_ETH_FILTER_NTUPLE,
-				       RTE_ETH_FILTER_ADD, &bgp_filter);
+	entry.input.flow_type = RTE_ETH_FLOW_NONFRAG_IPV4_TCP;
+	entry.input.flow.ip4_flow.dst_ip = kni_ip_addr;
+	entry.input.flow.udp4_flow.dst_port = rte_cpu_to_be_16(TCP_BGP_PORT);
+
+	entry.input.flow_ext.is_vf = 0;
+
+	entry.action.behavior = RTE_ETH_FDIR_ACCEPT;
+	entry.action.flex_off = 0;  /* Use 0 by default. */
+	entry.action.report_status = RTE_ETH_FDIR_REPORT_ID;
+	entry.action.rx_queue = 127;
+
+	entry.soft_id = 0;
+
+	ret = rte_eth_dev_filter_ctrl(port_id, RTE_ETH_FILTER_FDIR,
+		RTE_ETH_FILTER_ADD, &entry);
+
+/*
+	ret = rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_FDIR,
+		RTE_ETH_FILTER_DELETE, &entry);
+	ret = rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_FDIR,
+		RTE_ETH_FILTER_UPDATE, &entry);
+*/
+
+	if (ret < 0) {
+		printf("flow director programming error: (%s)\n",
+			strerror(-ret));
+		return -1;
+	}
+
+	return 0;
 }
 
 /* Initialise ports/queues etc. and start main loop on each core */
@@ -515,16 +543,9 @@ main(int argc, char** argv)
 	}
 	check_all_ports_link_status(nb_sys_ports, ports_mask);
 
-	if (setup_bgp_filter()) {
+	if (setup_bgp_filter(0)) {
 		printf("could not initialize BGP filter\n");
 		return -1;
-	}
-
-	/* Initialize dst MACs for all ports. */
-	for (port = 0; port < RTE_MAX_ETHPORTS; port++) {
-		//dest_eth_addr[port] =
-		//	ETHER_LOCAL_ADMIN_ADDR + ((uint64_t)port << 40);
-		//rte_eth_macaddr_get(port, &ports_eth_addr[port]);
 	}
 
 	/*
