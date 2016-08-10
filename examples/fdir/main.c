@@ -78,28 +78,11 @@ static const struct rte_eth_conf port_conf_default = {
 #define TCP_BGP_PORT	179
 #define KNI_IP_ADDR	"192.168.57.12"
 
-#if 0
-#define IPV4_ADDR_TO_UINT(ip_addr, ip) \
-do { \
-	if ((ip_addr).family == AF_INET) \
-		(ip) = (ip_addr).addr.ipv4.s_addr; \
-	else { \
-		printf("invalid parameter.\n"); \
-		return; \
-	} \
-} while (0)
-#endif
-
 static void
 add_fdir_filter(uint8_t port_id)
 {
 	struct rte_eth_fdir_filter entry;
 	uint32_t kni_ip_addr;
-#if 0
-	uint8_t flexbytes[RTE_ETH_FDIR_MAX_FLEXLEN];
-	char *end;
-	unsigned long vf_id;
-#endif
 	int ret = 0;
 
 	ret = rte_eth_dev_filter_supported(port_id, RTE_ETH_FILTER_FDIR);
@@ -108,30 +91,7 @@ add_fdir_filter(uint8_t port_id)
 			port_id);
 		return;
 	}
-#if 0
-	memset(flexbytes, 0, sizeof(flexbytes));
-#endif
 	memset(&entry, 0, sizeof(struct rte_eth_fdir_filter));
-
-#if 0
-	if (fdir_conf.mode ==  RTE_FDIR_MODE_PERFECT_MAC_VLAN) {
-		if (strcmp(res->mode_value, "MAC-VLAN")) {
-			printf("Please set mode to MAC-VLAN.\n");
-			return;
-		}
-	} else if (fdir_conf.mode ==  RTE_FDIR_MODE_PERFECT_TUNNEL) {
-		if (strcmp(res->mode_value, "Tunnel")) {
-			printf("Please set mode to Tunnel.\n");
-			return;
-		}
-	} else {
-		if (strcmp(res->mode_value, "IP")) {
-			printf("Please set mode to IP.\n");
-			return;
-		}
-		entry.input.flow_type = str2flowtype(res->flow_type);
-	}
-#endif
 
 	ret = inet_pton(AF_INET, KNI_IP_ADDR, &kni_ip_addr);
 	if (ret == 0) {
@@ -146,113 +106,6 @@ add_fdir_filter(uint8_t port_id)
 	entry.input.flow.ip4_flow.dst_ip = kni_ip_addr;
 	entry.input.flow.udp4_flow.dst_port = rte_cpu_to_be_16(TCP_BGP_PORT);
 
-//	ret = rte_eth_dev_filter_ctrl(1, RTE_ETH_FILTER_NTUPLE,
-//		RTE_ETH_FILTER_ADD, &bgp_filter);
-
-#if 0
-	ret = parse_flexbytes(res->flexbytes_value,
-					flexbytes,
-					RTE_ETH_FDIR_MAX_FLEXLEN);
-	if (ret < 0) {
-		printf("error: Cannot parse flexbytes input.\n");
-		return;
-	}
-
-	switch (entry.input.flow_type) {
-	case RTE_ETH_FLOW_FRAG_IPV4:
-	case RTE_ETH_FLOW_NONFRAG_IPV4_OTHER:
-		entry.input.flow.ip4_flow.proto = res->proto_value;
-	case RTE_ETH_FLOW_NONFRAG_IPV4_UDP:
-	case RTE_ETH_FLOW_NONFRAG_IPV4_TCP:
-		IPV4_ADDR_TO_UINT(res->ip_dst,
-			entry.input.flow.ip4_flow.dst_ip);
-		IPV4_ADDR_TO_UINT(res->ip_src,
-			entry.input.flow.ip4_flow.src_ip);
-		entry.input.flow.ip4_flow.tos = res->tos_value;
-		entry.input.flow.ip4_flow.ttl = res->ttl_value;
-		/* need convert to big endian. */
-		entry.input.flow.udp4_flow.dst_port =
-				rte_cpu_to_be_16(res->port_dst);
-		entry.input.flow.udp4_flow.src_port =
-				rte_cpu_to_be_16(res->port_src);
-		break;
-	case RTE_ETH_FLOW_NONFRAG_IPV4_SCTP:
-		IPV4_ADDR_TO_UINT(res->ip_dst,
-			entry.input.flow.sctp4_flow.ip.dst_ip);
-		IPV4_ADDR_TO_UINT(res->ip_src,
-			entry.input.flow.sctp4_flow.ip.src_ip);
-		entry.input.flow.ip4_flow.tos = res->tos_value;
-		entry.input.flow.ip4_flow.ttl = res->ttl_value;
-		/* need convert to big endian. */
-		entry.input.flow.sctp4_flow.dst_port =
-				rte_cpu_to_be_16(res->port_dst);
-		entry.input.flow.sctp4_flow.src_port =
-				rte_cpu_to_be_16(res->port_src);
-		entry.input.flow.sctp4_flow.verify_tag =
-				rte_cpu_to_be_32(res->verify_tag_value);
-		break;
-	case RTE_ETH_FLOW_FRAG_IPV6:
-	case RTE_ETH_FLOW_NONFRAG_IPV6_OTHER:
-		entry.input.flow.ipv6_flow.proto = res->proto_value;
-	case RTE_ETH_FLOW_NONFRAG_IPV6_UDP:
-	case RTE_ETH_FLOW_NONFRAG_IPV6_TCP:
-		IPV6_ADDR_TO_ARRAY(res->ip_dst,
-			entry.input.flow.ipv6_flow.dst_ip);
-		IPV6_ADDR_TO_ARRAY(res->ip_src,
-			entry.input.flow.ipv6_flow.src_ip);
-		entry.input.flow.ipv6_flow.tc = res->tos_value;
-		entry.input.flow.ipv6_flow.hop_limits = res->ttl_value;
-		/* need convert to big endian. */
-		entry.input.flow.udp6_flow.dst_port =
-				rte_cpu_to_be_16(res->port_dst);
-		entry.input.flow.udp6_flow.src_port =
-				rte_cpu_to_be_16(res->port_src);
-		break;
-	case RTE_ETH_FLOW_NONFRAG_IPV6_SCTP:
-		IPV6_ADDR_TO_ARRAY(res->ip_dst,
-			entry.input.flow.sctp6_flow.ip.dst_ip);
-		IPV6_ADDR_TO_ARRAY(res->ip_src,
-			entry.input.flow.sctp6_flow.ip.src_ip);
-		entry.input.flow.ipv6_flow.tc = res->tos_value;
-		entry.input.flow.ipv6_flow.hop_limits = res->ttl_value;
-		/* need convert to big endian. */
-		entry.input.flow.sctp6_flow.dst_port =
-				rte_cpu_to_be_16(res->port_dst);
-		entry.input.flow.sctp6_flow.src_port =
-				rte_cpu_to_be_16(res->port_src);
-		entry.input.flow.sctp6_flow.verify_tag =
-				rte_cpu_to_be_32(res->verify_tag_value);
-		break;
-	case RTE_ETH_FLOW_L2_PAYLOAD:
-		entry.input.flow.l2_flow.ether_type =
-			rte_cpu_to_be_16(res->ether_type);
-		break;
-	default:
-		break;
-	}
-
-	if (fdir_conf.mode ==  RTE_FDIR_MODE_PERFECT_MAC_VLAN)
-		(void)rte_memcpy(&entry.input.flow.mac_vlan_flow.mac_addr,
-				 &res->mac_addr,
-				 sizeof(struct ether_addr));
-
-	if (fdir_conf.mode ==  RTE_FDIR_MODE_PERFECT_TUNNEL) {
-		(void)rte_memcpy(&entry.input.flow.tunnel_flow.mac_addr,
-				 &res->mac_addr,
-				 sizeof(struct ether_addr));
-		entry.input.flow.tunnel_flow.tunnel_type =
-			str2fdir_tunneltype(res->tunnel_type);
-		entry.input.flow.tunnel_flow.tunnel_id =
-			rte_cpu_to_be_32(res->tunnel_id_value);
-	}
-
-	(void)rte_memcpy(entry.input.flow_ext.flexbytes,
-		   flexbytes,
-		   RTE_ETH_FDIR_MAX_FLEXLEN);
-
-	entry.input.flow_ext.vlan_tci = rte_cpu_to_be_16(res->vlan_value);
-#endif
-
 	entry.input.flow_ext.is_vf = 0;
 
 	entry.action.behavior = RTE_ETH_FDIR_ACCEPT;
@@ -262,44 +115,19 @@ add_fdir_filter(uint8_t port_id)
 
 	entry.soft_id = 0;
 
-/*
-	if (!strcmp(res->pf_vf, "pf"))
-	else if (!strncmp(res->pf_vf, "vf", 2)) {
-		struct rte_eth_dev_info dev_info;
-
-		memset(&dev_info, 0, sizeof(dev_info));
-		rte_eth_dev_info_get(res->port_id, &dev_info);
-		errno = 0;
-		vf_id = strtoul(res->pf_vf + 2, &end, 10);
-		if (errno != 0 || *end != '\0' || vf_id >= dev_info.max_vfs) {
-			printf("invalid parameter %s.\n", res->pf_vf);
-			return;
-		}
-		entry.input.flow_ext.is_vf = 1;
-		entry.input.flow_ext.dst_id = (uint16_t)vf_id;
-	} else {
-		printf("invalid parameter %s.\n", res->pf_vf);
-		return;
-	}
-*/
 	ret = rte_eth_dev_filter_ctrl(port_id, RTE_ETH_FILTER_FDIR,
 		RTE_ETH_FILTER_ADD, &entry);
 
 /*
-	else if (!strcmp(res->ops, "del"))
-		ret = rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_FDIR,
-					     RTE_ETH_FILTER_DELETE, &entry);
-	else
-		ret = rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_FDIR,
-					     RTE_ETH_FILTER_UPDATE, &entry);
+	ret = rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_FDIR,			RTE_ETH_FILTER_DELETE, &entry);
+	ret = rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_FDIR,
+		RTE_ETH_FILTER_UPDATE, &entry);
 */
 
 	if (ret < 0)
 		printf("flow director programming error: (%s)\n",
 			strerror(-ret));
 }
-
-
 
 /*
  * Initialises a given port using global settings and with the rx buffers
