@@ -127,7 +127,7 @@ parse_args(int argc, char **argv)
 	opterr = 0;
 
 	/* Parse command line */
-	while ((opt = getopt_long(argc, argv, "p:P", longopts,
+	while ((opt = getopt_long(argc, argv, "", longopts,
 						&longindex)) != EOF) {
 		switch (opt) {
 		case 0:
