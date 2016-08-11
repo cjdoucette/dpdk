@@ -76,7 +76,7 @@ app_cpu_core_count(void)
 }
 #endif
 
-static int
+int
 port_init(struct gk_data *gk)
 {
 	int ret;
@@ -208,7 +208,7 @@ dst_queues_mem_size(struct queues_conf *conf)
 		dst_queues_offset(conf, e_DST_QUEUES_TOTAL);
 }
 
-static struct dst_queues *
+struct dst_queues *
 dst_queues_init(struct gk_data *gk, struct queues_conf *conf)
 {
 	struct dst_queues *dst_queues = NULL;
@@ -305,11 +305,12 @@ req_queue_mem_size(const uint16_t num_priorities)
 		req_queue_offset(num_priorities, e_REQ_QUEUE_TOTAL);
 }
 
-static struct req_queue *
+struct req_queue *
 req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 {
 	struct req_queue *req_queue = NULL;
 	uint32_t mem_size, bmp_mem_size, cycles_per_byte;
+
 
 	mem_size = req_queue_mem_size(conf->num_queues);
 	if (mem_size == 0)
@@ -354,7 +355,7 @@ req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 	req_queue->head = NULL;
 
 	req_queue->bmp_array = req_queue->memory +
-		req_queue_offset(conf->num_queues, e_DST_QUEUES_BITMAP);
+		req_queue_offset(conf->num_queues, e_REQ_QUEUE_BITMAP);
 
 	bmp_mem_size =
 		rte_bitmap_get_memory_footprint(req_queue->num_priorities);
@@ -457,59 +458,5 @@ gk_init(struct gk_conf *gk_conf, struct gk_data *gk, unsigned rx_burst_size)
 	gk->wk_dst_core = gk_conf->wk_dst_core;
 	gk->rx_core = gk_conf->rx_core;
 
-	return 0;
-}
-
-int
-queues_init(struct gk_data *gk, struct queues_conf *req_conf,
-	struct queues_conf *dst_conf, struct req_queue **req_queue,
-	struct dst_queues **dst_queues)
-{
-	if (rte_eth_dev_count() == 0) {
-		printf("No Ethernet port\n");
-		return -1;
-	}
-
-	*dst_queues = dst_queues_init(gk, dst_conf);
-	if (dst_queues == NULL)
-		return -1;
-
-	*req_queue = req_queue_init(gk, req_conf);
-	if (req_queue == NULL)
-		return -1;
-
-	if (port_init(gk) < 0)
-		return -1;
-
-#if 0
-	RTE_LOG(INFO, APP, "time stamp clock running at %" PRIu64 " Hz\n",
-			 rte_get_timer_hz());
-
-	RTE_LOG(INFO, APP, "Ring sizes: NIC RX = %u, Mempool = %d "
-		"REQ queue = %u, DST queue = %u. NIC TX = %u\n",
-		gk->rx_queue_size, gk->mbuf_pool_size,
-		gk->rx_ring_size, gl->rx_ring_size,
-		gk->tx_queue_size);
-
-	RTE_LOG(INFO, APP, "Req burst sizes: RX read = %hu, RX write = %hu,\n"
-		"Worker read/QoS enqueue = %hu,\n"
-		"QoS dequeue = %hu, Worker write = %hu\n",
-		req_conf->rx_burst_size, req_conf->qos_enqueue_size,
-		req_conf->qos_enqueue_size,
-		req_conf->qos_dequeue_size, req_conf->tx_burst_size);
-
-	RTE_LOG(INFO, APP, "Req burst sizes: RX read = %hu, RX write = %hu,\n"
-		"Worker read/QoS enqueue = %hu,\n"
-		"QoS dequeue = %hu, Worker write = %hu\n",
-		pri_conf->rx_burst_size, pri_conf->qos_enqueue_size,
-		pri_conf->qos_enqueue_size,
-		pri_conf->qos_dequeue_size, pri_conf->tx_burst_size);
-
-	RTE_LOG(INFO, APP, "NIC thresholds RX (p = %hhu, h = %hhu, w = %hhu),"
-		"TX (p = %hhu, h = %hhu, w = %hhu)\n",
-		app_conf->rx_pthresh, app_conf->rx_hthresh,
-		app_conf->rx_wthresh, app_conf->tx_pthresh,
-		app_conf->tx_hthresh, app_conf->tx_wthresh);
-#endif
 	return 0;
 }

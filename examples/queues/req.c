@@ -304,9 +304,10 @@ req_dequeue(struct req_queue *req_queue, const uint32_t num_pkts)
 
 out:
 	req_queue->head = head;
-	req_queue->highest_priority = head->priority;
 	if (req_queue->head == NULL)
 		req_queue->lowest_priority = req_queue->num_priorities;
+	else
+		req_queue->highest_priority = head->priority;
 
 	return req_queue->n_pkts_out;
 }

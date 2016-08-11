@@ -65,11 +65,10 @@ req_thread(struct gk_data *gk, struct req_queue *req_queue)
 		}
 
 		req_dequeue(req_queue, gk->qos_dequeue_size);
+		/* XXX */
 		//dst_send_burst(gk, dst_queues);
 	}
 }
-
-
 
 void
 dst_thread(struct gk_data *gk, struct dst_queues *dst_queues)

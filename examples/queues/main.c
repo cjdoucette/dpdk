@@ -102,9 +102,9 @@ static struct queues_conf dst_conf = {
 #define RX_QUEUE	0
 #define TX_QUEUE	0
 
-#define WK_REQ_CORE	0
-#define WK_DST_CORE	1
-#define RX_CORE		2
+#define WK_REQ_CORE	10
+#define WK_DST_CORE	11
+#define RX_CORE		12
 
 static struct gk_conf gk_conf = {
 	.mbuf_pool_size = NB_MBUF,
@@ -139,9 +139,9 @@ static struct gk_conf gk_conf = {
 	.rx_core = RX_CORE,
 };
 
-static struct gk_data gk;
-static struct dst_queues *dst_queues;
-static struct req_queue *req_queue;
+struct gk_data gk;
+struct dst_queues *dst_queues;
+struct req_queue *req_queue;
 
 static int
 main_loop(void *arg)
@@ -183,8 +183,15 @@ main(int argc, char **argv)
 	if (ret < 0)
 		return -1;
 
-	ret = queues_init(&gk, &req_conf, &dst_conf, &req_queue, &dst_queues);
-	if (ret < 0)
+	dst_queues = dst_queues_init(&gk, &dst_conf);
+	if (dst_queues == NULL)
+		return -1;
+
+	req_queue = req_queue_init(&gk, &req_conf);
+	if (req_queue == NULL)
+		return -1;
+
+	if (port_init(&gk) < 0)
 		return -1;
 
 	rte_eal_mp_remote_launch(main_loop, &gk, CALL_MASTER);

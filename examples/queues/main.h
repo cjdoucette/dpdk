@@ -295,10 +295,11 @@ min_val_2_u32(uint32_t x, uint32_t y)
 
 int gk_init(struct gk_conf *gk_conf, struct gk_data *gk,
 	unsigned rx_burst_size);
-
-int queues_init(struct gk_data *gk, struct queues_conf *req_conf,
-	struct queues_conf *dst_conf, struct req_queue **req_queue,
-	struct dst_queues **dst_queues);
+struct dst_queues *dst_queues_init(struct gk_data *gk,
+	struct queues_conf *conf);
+struct req_queue *req_queue_init(struct gk_data *gk,
+	struct queues_conf *conf);
+int port_init(struct gk_data *gk);
 
 void rx_thread(struct gk_data *gk);
 void req_thread(struct gk_data *gk, struct req_queue *req_queue);
