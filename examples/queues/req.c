@@ -36,6 +36,18 @@
 
 #include "req.h"
 
+static void
+print_req_queue(struct req_queue *req_queue)
+{
+	struct priority_ll *pll = req_queue->head;
+	printf("request priority queue:\n");
+	while (pll) {
+		printf("%hhu->", pll->priority);
+		pll = pll->prev;
+	}
+	printf("\n");
+}
+
 void
 req_send_burst(struct gk_data *gk, struct req_queue *req_queue)
 {
@@ -58,18 +70,10 @@ req_get_priority(struct rte_mbuf *pkt)
 	return ((*(uint8_t *)pkt + rte_rand()) % 62) + 2;
 }
 
-static struct priority_ll *
-first_pkt_of_priority(struct priority_ll *pll, uint8_t priority)
-{
-	while (pll->next != NULL && pll->next->priority == priority)
-		pll = pll->next;
-	return pll;
-}
-
 static void
 insert_new_priority_req(struct req_queue *req_queue, struct priority_ll *pll)
 {
-	uint8_t next, prev;
+	uint8_t next;
 	uint8_t priority = pll->priority;
 
 	req_queue->priorities[priority] = pll;
@@ -84,55 +88,44 @@ insert_new_priority_req(struct req_queue *req_queue, struct priority_ll *pll)
 		return;
 	}
 
-	/* Update head of queue. */
+	/* Insert at head of queue. */
+
 	if (priority > req_queue->highest_priority) {
+		pll->prev = req_queue->head;
+		req_queue->head->next = pll;
 		req_queue->head = pll;
 		req_queue->highest_priority = priority;
-	}
-
-	if (priority < req_queue->lowest_priority)
-		req_queue->lowest_priority = priority;
-
-	/* Search for the next node in the queue. */
-	for (next = priority + 1; next < req_queue->num_priorities; next++) {
-		if (rte_bitmap_get(req_queue->bmp, next) != 0) {
-			pll->next = req_queue->priorities[next];
-			break;
-		}
-	}
-
-	/* Found the next node in the queue. */
-	if (pll->next != NULL) {
-		pll->prev = pll->next->prev;
-		pll->next->prev = pll;
-		if (pll->prev != NULL)
-			pll->prev->next = pll;
 		return;
 	}
 
-	/*
-	 * Need to look backwards for previous node, and
-	 * then get the first packet in that priority. We
-	 * know there must be a previous node because the
-	 * queue has at least one packet in it.
-	 */
-	for (prev = priority - 1; prev >= 2; prev--)
-		if (rte_bitmap_get(req_queue->bmp, prev) != 0)
-			break;
-	pll->prev = first_pkt_of_priority(req_queue->priorities[prev], prev);
-	pll->prev->next = pll;
+	/* Insert in middle or end of queue. */
+
+	if (priority < req_queue->lowest_priority) {
+		req_queue->lowest_priority = priority;
+	}
+
+	for (next = priority + 1; next < req_queue->num_priorities; next++) {
+		if (rte_bitmap_get(req_queue->bmp, next) != 0) {
+			pll->next = req_queue->priorities[next];
+			pll->prev = pll->next->prev;
+			pll->next->prev = pll;
+			if (pll->prev != NULL)
+				pll->prev->next = pll;
+			return;
+		}
+	}
 }
 
 static inline void
 insert_req(struct priority_ll *last_req_of_pri, struct priority_ll *new_req)
 {
-	if (last_req_of_pri->prev != NULL)
-		last_req_of_pri->prev->next = new_req;
-	new_req->prev = last_req_of_pri->prev;
-
-	if (last_req_of_pri->next != NULL)
-		last_req_of_pri->next->prev = new_req;
+	struct priority_ll *prev = last_req_of_pri->prev;
+	last_req_of_pri->prev = new_req;
 	new_req->next = last_req_of_pri;
+	if (prev) {
+		prev->next = new_req;
+		new_req->prev = prev;
+	}
 }
 
 static uint32_t
@@ -141,16 +134,17 @@ drop_lowest_priority_pkt(struct req_queue *req_queue, struct priority_ll *pll)
 	struct priority_ll *lowest_pll;
 
 	/* New packet is lowest priority, so drop it. */
-	if (pll->priority == req_queue->lowest_priority) {
+	if (pll->priority <= req_queue->lowest_priority) {
 		rte_pktmbuf_free(pll->mbuf);
 		return 0;
 	}
 
 	lowest_pll = req_queue->priorities[req_queue->lowest_priority];
 
-	/* Only one packet in the queue (probably will never happen). */
-	if (lowest_pll->next == NULL) {
+	/* Only one packet in the queue. */
+	if (unlikely(lowest_pll->next == NULL)) {
 		req_queue->priorities[lowest_pll->priority] = NULL;
+		rte_bitmap_clear(req_queue->bmp, lowest_pll->priority);
 		req_queue->lowest_priority = 0;
 		goto out;
 	}
@@ -158,6 +152,7 @@ drop_lowest_priority_pkt(struct req_queue *req_queue, struct priority_ll *pll)
 	/* The lowest priority packet was the only one of that priority. */
 	if (lowest_pll->priority != lowest_pll->next->priority) {
 		req_queue->priorities[lowest_pll->priority] = NULL;
+		rte_bitmap_clear(req_queue->bmp, lowest_pll->priority);
 		lowest_pll->next->prev = NULL;
 		req_queue->lowest_priority = lowest_pll->next->priority;
 		goto out;
@@ -188,6 +183,7 @@ req_enqueue(struct req_queue *req_queue, struct rte_mbuf **mbufs,
 		 * this should never happen? Add drop statistics.
 		 */
 		if (!pll) {
+			printf("can't prepend data to mbuf\n");
 			rte_pktmbuf_free(mbufs[i]);
 			continue;
 		}
@@ -197,17 +193,21 @@ req_enqueue(struct req_queue *req_queue, struct rte_mbuf **mbufs,
 
 		if (req_queue->length == req_queue->qsize) {
 			/* XXX Add drop statistics. */
-			if (drop_lowest_priority_pkt(req_queue, pll) == 0)
+			if (drop_lowest_priority_pkt(req_queue, pll) == 0) {
 				continue;
+			}
 		}
 
-		/* Insert request of a priority we don't yet have. */
 		if (req_queue->priorities[pll->priority] == NULL) {
+			/* Insert request of a priority we don't yet have. */
+			print_req_queue(req_queue);
 			insert_new_priority_req(req_queue, pll);
 			rte_bitmap_set(req_queue->bmp, pll->priority);
-		} else
+		} else {
 			/* Append request to end of appropriate priority. */
 			insert_req(req_queue->priorities[pll->priority], pll);
+			req_queue->priorities[pll->priority] = pll;
+		}
 
 		req_queue->length++;
 		added++;
@@ -285,8 +285,8 @@ req_dequeue(struct req_queue *req_queue, const uint32_t num_pkts)
 			(head->priority != head->prev->priority)) {
 			rte_bitmap_clear(req_queue->bmp, head->priority);
 		}
-		head = head->prev;
 		head->next = NULL;
+		head = head->prev;
 		req_queue->length--;
 
 		/* Remove extra space in mbuf. */

@@ -57,6 +57,7 @@ req_thread(struct gk_data *gk, struct req_queue *req_queue)
 		 */
 		ret = rte_ring_sc_dequeue_bulk(gk->req_rx_ring,
 			(void **)en_mbufs, gk->qos_enqueue_size);
+
 		if (likely(ret == 0)) {
 			/* XXX Maintain stats. */
 			nb_pkt = req_enqueue(req_queue, en_mbufs,
@@ -109,19 +110,20 @@ rx_thread(struct gk_data *gk)
 
 	struct rte_mbuf *req_mbufs[gk->rx_burst_size] __rte_cache_aligned;
 	struct rte_mbuf *dst_mbufs[gk->rx_burst_size] __rte_cache_aligned;
-	uint32_t nb_req = 0;
-	uint32_t nb_dst = 0;
 
 	uint32_t type;
 	uint32_t queue;
 
 	while (1) {
+		uint32_t nb_req = 0;
+		uint32_t nb_dst = 0;
 		nb_rx = rte_eth_rx_burst(gk->rx_port, gk->rx_queue,
 			rx_mbufs, gk->rx_burst_size);
 
 		if (likely(nb_rx != 0)) {
 			uint32_t i;
 
+			printf("received %u packets\n", nb_rx);
 			for (i = 0; i < nb_rx; i++) {
 				get_pkt_sched(rx_mbufs[i], &type, &queue);
 
@@ -141,11 +143,15 @@ rx_thread(struct gk_data *gk)
 			}
 
 			/* Enqueue priority packets for further processing. */
+#if 0
 			if (unlikely(rte_ring_sp_enqueue_bulk(gk->dst_rx_ring,
 				(void **)dst_mbufs, nb_dst) != 0)) {
 				for (i = 0; i < nb_dst; i++)
 					rte_pktmbuf_free(dst_mbufs[i]);
 			}
+#endif
+			for (i = 0; i < nb_dst; i++)
+				rte_pktmbuf_free(dst_mbufs[i]);
 		}
 	}
 }
