@@ -45,6 +45,7 @@ req_thread(struct gk_data *gk, struct req_queue *req_queue)
 	struct rte_mbuf *de_mbufs[gk->qos_dequeue_size];
 
 	req_queue->pkts_out = de_mbufs;
+	req_queue->n_pkts_out = 0;
 
 	while (1) {
 		uint32_t nb_pkt;
@@ -66,8 +67,7 @@ req_thread(struct gk_data *gk, struct req_queue *req_queue)
 		}
 
 		req_dequeue(req_queue, gk->qos_dequeue_size);
-		/* XXX */
-		//dst_send_burst(gk, dst_queues);
+		req_send_burst(gk, req_queue);
 	}
 }
 
@@ -123,7 +123,6 @@ rx_thread(struct gk_data *gk)
 		if (likely(nb_rx != 0)) {
 			uint32_t i;
 
-			printf("received %u packets\n", nb_rx);
 			for (i = 0; i < nb_rx; i++) {
 				get_pkt_sched(rx_mbufs[i], &type, &queue);
 

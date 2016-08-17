@@ -80,7 +80,7 @@ static struct queues_conf dst_conf = {
 /* Number of packets to read and write from and to the NIC. */
 #define MAX_PKT_RX_BURST	64
 #define QOS_PKT_ENQUEUE		64
-#define QOS_PKT_DEQUEUE		32
+#define QOS_PKT_DEQUEUE		64
 #define MAX_PKT_TX_BURST	64
 
 #define RX_RING_SIZE	(8 * 1024)

@@ -36,7 +36,7 @@
 
 #include "req.h"
 
-static void
+void
 print_req_queue(struct req_queue *req_queue)
 {
 	struct priority_ll *pll = req_queue->head;
@@ -51,16 +51,17 @@ print_req_queue(struct req_queue *req_queue)
 void
 req_send_burst(struct gk_data *gk, struct req_queue *req_queue)
 {
+	uint32_t sent = 0;
 	uint16_t ret;
 
 	do {
 		ret = rte_eth_tx_burst(gk->tx_port, gk->tx_queue,
-			req_queue->pkts_out, req_queue->n_pkts_out);
+			req_queue->pkts_out + sent, req_queue->n_pkts_out);
 
 		/* We cannot drop the packets, so re-send. */
 		req_queue->n_pkts_out -= ret;
-		req_queue->pkts_out += ret;
-	} while (req_queue->n_pkts_out);
+		sent += ret;
+	} while (req_queue->n_pkts_out > 0);
 }
 
 /* XXX Dummy implementation. */
@@ -77,8 +78,6 @@ insert_new_priority_req(struct req_queue *req_queue, struct priority_ll *pll)
 	uint8_t priority = pll->priority;
 
 	req_queue->priorities[priority] = pll;
-	pll->next = NULL;
-	pll->prev = NULL;
 
 	/* This is the first packet in the queue. */
 	if (req_queue->length == 0) {
@@ -178,6 +177,7 @@ req_enqueue(struct req_queue *req_queue, struct rte_mbuf **mbufs,
 	for (i = 0; i < num_pkts; i++) {
 		pll = (struct priority_ll *)rte_pktmbuf_prepend(mbufs[i],
 			sizeof(*pll));
+
 		/*
 		 * XXX Does mbuf pool creation size guarantee
 		 * this should never happen? Add drop statistics.
@@ -188,6 +188,8 @@ req_enqueue(struct req_queue *req_queue, struct rte_mbuf **mbufs,
 			continue;
 		}
 
+		pll->next = NULL;
+		pll->prev = NULL;
 		pll->mbuf = mbufs[i];
 		pll->priority = req_get_priority(mbufs[i]);
 
@@ -200,7 +202,6 @@ req_enqueue(struct req_queue *req_queue, struct rte_mbuf **mbufs,
 
 		if (req_queue->priorities[pll->priority] == NULL) {
 			/* Insert request of a priority we don't yet have. */
-			print_req_queue(req_queue);
 			insert_new_priority_req(req_queue, pll);
 			rte_bitmap_set(req_queue->bmp, pll->priority);
 		} else {
@@ -274,24 +275,30 @@ req_dequeue(struct req_queue *req_queue, const uint32_t num_pkts)
 	req_queue->n_pkts_out = 0;
 	while (req_queue->n_pkts_out < num_pkts && head != NULL) {
 
+		/* Get packet out of linked list. */
 		pkt = head->mbuf;
 
 		/* Check credits. */
-		if (!credits_check(req_queue, pkt))
+		if (!credits_check(req_queue, pkt)) {
+			printf("out of credits\n");
 			goto out;
+		}
 
 		/* Remove request from queue. */
 		if (head->prev == NULL ||
 			(head->priority != head->prev->priority)) {
+			req_queue->priorities[head->priority] = NULL;
 			rte_bitmap_clear(req_queue->bmp, head->priority);
 		}
-		head->next = NULL;
 		head = head->prev;
+		if (head != NULL)
+			head->next = NULL;
 		req_queue->length--;
 
 		/* Remove extra space in mbuf. */
 		if (rte_pktmbuf_adj(pkt, sizeof(*head)) == NULL) {
-			rte_panic("bug in request queue: should be able to remove the extra linked list data in a packet, but the removal failed\n");;
+			printf("bug in request queue: should be able to remove the extra linked list data in a packet, but the removal failed\n");
+			rte_pktmbuf_free(pkt);
 			continue;
 		}
 

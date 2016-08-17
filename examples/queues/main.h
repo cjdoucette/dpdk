@@ -270,7 +270,8 @@ get_pkt_sched(struct rte_mbuf *m, uint32_t *type, uint32_t *queue)
 		(struct gk_queue_hierarchy *)&m->hash.sched;
 
 	/* XXX Replace with lookup and hash. */
-	*type = ((uint64_t)m + rte_rand() % 100) < 5 ? GK_REQ_PKT : GK_CAP_PKT;
+	(void)m;
+	*type = (rte_rand() % 100) < 5 ? GK_REQ_PKT : GK_CAP_PKT;
 	*queue = *type == GK_REQ_PKT ? 0 : rte_rand() % 4096;
 
 	sched->type = *type;

@@ -40,5 +40,6 @@ int req_enqueue(struct req_queue *req_queue, struct rte_mbuf **pkts,
 	uint32_t n_pkts);
 uint32_t req_dequeue(struct req_queue *req_queue, const uint32_t num_pkts);
 void req_send_burst(struct gk_data *gk, struct req_queue *req_queue);
+void print_req_queue(struct req_queue *req_queue);
 
 #endif /* _GK_REQ_H_ */
