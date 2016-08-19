@@ -58,8 +58,7 @@
 
 static const struct rte_eth_conf port_conf = {
 	.rxmode = {
-//		.mq_mode = ETH_MQ_RX_RSS,
-		.mq_mode = ETH_MQ_RX_NONE,
+		.mq_mode = ETH_MQ_RX_RSS,
 		.max_rx_pkt_len = ETHER_MAX_LEN, /* Def max frame length. */
 		.split_hdr_size = 0,
 		.header_split   = 0, /**< Header Split disabled. */
@@ -70,7 +69,6 @@ static const struct rte_eth_conf port_conf = {
 		.jumbo_frame    = 0, /**< Jumbo Frame Support disabled. */
 		.hw_strip_crc   = 0, /**< CRC stripping by hardware disabled. */
 	},
-/*
 	.rx_adv_conf = {
 		.rss_conf = {
 			//.rss_key = NULL,
@@ -78,7 +76,6 @@ static const struct rte_eth_conf port_conf = {
 			.rss_hf = ETH_RSS_IP,
 		},
 	},
-*/
 };
 
 #define PRINT_MAC(addr)		printf("%02"PRIx8":%02"PRIx8":%02"PRIx8 \
@@ -143,12 +140,12 @@ bond_port_init(struct rte_mempool *mbuf_pool)
 
 	bond_port = (uint8_t)retval;
 
-	retval = rte_eth_dev_configure(bond_port, 1, 1, &port_conf);
+	retval = rte_eth_dev_configure(bond_port, 3, 1, &port_conf);
 	if (retval != 0)
 		rte_exit(EXIT_FAILURE, "port %u: config failed (res=%d)\n",
 			bond_port, retval);
 
-	for (i = 0; i < 1; i++) {
+	for (i = 0; i < 3; i++) {
 		retval = rte_eth_rx_queue_setup(bond_port, i,
 			RTE_RX_DESC_DEFAULT, rte_eth_dev_socket_id(bond_port),
 			NULL, mbuf_pool);
@@ -186,7 +183,6 @@ bond_port_init(struct rte_mempool *mbuf_pool)
 	return bond_port;
 }
 
-#if 0
 static void
 rss_setup(uint8_t portid)
 {
@@ -236,7 +232,6 @@ rss_setup(uint8_t portid)
 		rte_panic("port %u: RSS setup error (RETA update failed)\n",
 			portid);
 }
-#endif
 
 static void
 rx_packets(uint8_t portid, uint16_t queueid)
@@ -313,7 +308,7 @@ main(int argc, char *argv[])
 	slave_port_init(0, mbuf_pool);
 	slave_port_init(1, mbuf_pool);
 	bond_port = bond_port_init(mbuf_pool);
-	//rss_setup(portid);
+	rss_setup(bond_port);
 
 	if (rte_lcore_count() != 3)
 		printf("\nWARNING: app needs 3 lcores: 10, 11, and 12\n");

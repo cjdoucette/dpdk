@@ -2,6 +2,8 @@
 
 This sample application demonstrates how to bond multiple Ethernet ports.
 
+This example enables RSS on the bond port, and sets up multiple queues on the bond port to show RSS working. Configuring multiple queues on the slave ports does not seem to be necessary.
+
 ## Setup
 
 Go to the `examples/bonding` directory:
@@ -37,6 +39,12 @@ This packet should be sent to queue 0.
 You could also start `pktgen` with the other port and observe that the behavior is the same since the ports are bonded:
 
     $ sudo ./pktgen -c 0xe000 --socket-mem 256 --file-prefix pg -b 83:00.0 -b 83:00.1 -b 85:00.1 -- -T -P -m "[14:15].0"
+
+You can change the destination IP address using the following command:
+
+    $ set ip dst 0 192.168.57.12
+
+By changing the destination IP address (perhaps a few times), you should be able to see the packets being directed to a different queue by RSS.
 
 ## Known Issues
 
