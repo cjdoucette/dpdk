@@ -42,17 +42,22 @@
 void
 dst_send_burst(struct gk_data *gk, struct dst_queues *dst_queues)
 {
+	uint32_t sent = 0;
 	uint16_t ret;
 
 	do {
 		ret = rte_eth_tx_burst(gk->tx_port, gk->tx_queue,
-			dst_queues->pkts_out, dst_queues->n_pkts_out);
+			dst_queues->pkts_out + sent, dst_queues->n_pkts_out);
+		if (ret != 0)
+			printf("dst sent %hu packets\n", ret);
 
 		/* We cannot drop the packets, so re-send. */
 		dst_queues->n_pkts_out -= ret;
-		dst_queues->pkts_out += ret;
-	} while (dst_queues->n_pkts_out);
+		sent += ret;
+	} while (dst_queues->n_pkts_out > 0);
 }
+
+
 
 /*
  * Based on rte_sched_port_enqueue_qptrs_prefetch0().
@@ -285,12 +290,16 @@ dst_enqueue(struct dst_queues *dst_queues, struct rte_mbuf **pkts,
 static inline int
 credits_check(struct dst_queues *dst_queues, struct rte_mbuf *pkt)
 {
+	(void)dst_queues;
+	(void)pkt;
+/*
 	uint32_t pkt_len = pkt->pkt_len + dst_queues->frame_overhead;
 
 	if (pkt_len > dst_queues->tb_credits)
 		return 0;
 
 	dst_queues->tb_credits -= pkt_len;
+*/
 	return 1;
 }
 
@@ -372,18 +381,24 @@ dst_dequeue(struct dst_queues *dst_queues, const uint32_t num_pkts)
 	 */
 	credits_update(dst_queues);
 
+	if (dst_queues->n_pkts_in_qs == 0)
+		return 0;
+
 	dst_queues->n_pkts_out = 0;
 	while (dst_queues->n_pkts_out < num_pkts &&
 		i < dst_queues->num_queues) {
 
-		if (rte_bitmap_get(dst_queues->bmp, dst_queues->cur_queue) != 0)
+		if (rte_bitmap_get(dst_queues->bmp, dst_queues->cur_queue) != 0) {
 			__dst_dequeue(dst_queues,
 				num_pkts - dst_queues->n_pkts_out);
+		}
 
 		dst_queues->cur_queue = (dst_queues->cur_queue + 1) &
 					(dst_queues->num_queues - 1);
+
 		i++;
 	}
 
+	dst_queues->n_pkts_in_qs -= dst_queues->n_pkts_out;
         return dst_queues->n_pkts_out;
 }

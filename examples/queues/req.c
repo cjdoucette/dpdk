@@ -249,12 +249,16 @@ credits_update(struct req_queue *req_queue)
 static inline int
 credits_check(struct req_queue *req_queue, struct rte_mbuf *pkt)
 {
+	(void)req_queue;
+	(void)pkt;
+#if 0
 	uint32_t pkt_len = pkt->pkt_len + req_queue->frame_overhead;
 
 	if (pkt_len > req_queue->tb_credits)
 		return 0;
 
 	req_queue->tb_credits -= pkt_len;
+#endif
 	return 1;
 }
 

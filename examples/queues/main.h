@@ -196,6 +196,7 @@ struct dst_queues {
 
 	struct rte_mbuf **pkts_out;
 	uint32_t n_pkts_out;
+	uint32_t n_pkts_in_qs;
 
 	struct gk_queue *queue;
 	uint8_t *bmp_array;
@@ -271,8 +272,10 @@ get_pkt_sched(struct rte_mbuf *m, uint32_t *type, uint32_t *queue)
 
 	/* XXX Replace with lookup and hash. */
 	(void)m;
-	*type = (rte_rand() % 100) < 5 ? GK_REQ_PKT : GK_CAP_PKT;
-	*queue = *type == GK_REQ_PKT ? 0 : rte_rand() % 4096;
+	//*type = (rte_rand() % 100) < 5 ? GK_REQ_PKT : GK_CAP_PKT;
+	*type = GK_CAP_PKT;
+	//*queue = *type == GK_REQ_PKT ? 0 : rte_rand() % 4096;
+	*queue = 0;
 
 	sched->type = *type;
 	sched->queue = *queue;
@@ -300,7 +303,6 @@ struct dst_queues *dst_queues_init(struct gk_data *gk,
 	struct queues_conf *conf);
 struct req_queue *req_queue_init(struct gk_data *gk,
 	struct queues_conf *conf);
-int port_init(struct gk_data *gk);
 
 void rx_thread(struct gk_data *gk);
 void req_thread(struct gk_data *gk, struct req_queue *req_queue);

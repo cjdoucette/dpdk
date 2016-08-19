@@ -34,25 +34,30 @@
 #include <rte_ethdev.h>
 #include <rte_malloc.h>
 #include <rte_cycles.h>
+#include <rte_eal.h>
 
 #include "main.h"
 #include "dst.h"
 
 //#define SYS_CPU_DIR "/sys/devices/system/cpu/cpu%u/topology/"
 
-static const struct rte_eth_conf port_conf = {
+static const struct rte_eth_conf port_conf_default = {
 	.rxmode = {
 		.max_rx_pkt_len = ETHER_MAX_LEN,
+#if 0
 		.split_hdr_size = 0,
 		.header_split   = 0, /**< Header Split disabled */
 		.hw_ip_checksum = 0, /**< IP checksum offload disabled */
 		.hw_vlan_filter = 0, /**< VLAN filtering disabled */
 		.jumbo_frame    = 0, /**< Jumbo Frame Support disabled */
 		.hw_strip_crc   = 0, /**< CRC stripped by hardware */
+#endif
 	},
+/*
 	.txmode = {
 		.mq_mode = ETH_DCB_NONE,
 	},
+*/
 };
 
 #if 0
@@ -75,94 +80,6 @@ app_cpu_core_count(void)
 	return ncores;
 }
 #endif
-
-int
-port_init(struct gk_data *gk)
-{
-	int ret;
-	struct rte_eth_link link;
-	struct rte_eth_rxconf rx_conf;
-	struct rte_eth_txconf tx_conf;
-
-	rx_conf.rx_thresh.pthresh = gk->rx_pthresh;
-	rx_conf.rx_thresh.hthresh = gk->rx_hthresh;
-	rx_conf.rx_thresh.wthresh = gk->rx_wthresh;
-	rx_conf.rx_free_thresh = 32;
-	rx_conf.rx_drop_en = 0;
-
-	tx_conf.tx_thresh.pthresh = gk->tx_pthresh;
-	tx_conf.tx_thresh.hthresh = gk->tx_hthresh;
-	tx_conf.tx_thresh.wthresh = gk->tx_wthresh;
-	tx_conf.tx_free_thresh = 0;
-	tx_conf.tx_rs_thresh = 0;
-	tx_conf.txq_flags = ETH_TXQ_FLAGS_NOMULTSEGS | ETH_TXQ_FLAGS_NOOFFLOADS;
-
-	/* init port */
-	RTE_LOG(INFO, APP, "Initializing port %"PRIu8"... ", gk->rx_port);
-	fflush(stdout);
-	ret = rte_eth_dev_configure(gk->rx_port, 1, 1, &port_conf);
-	if (ret < 0) {
-		printf("Cannot configure device: "
-			"err=%d, port=%"PRIu8"\n", ret, gk->rx_port);
-		return -1;
-	}
-
-	fflush(stdout);
-	ret = rte_eth_rx_queue_setup(gk->rx_port, gk->rx_queue,
-		gk->rx_queue_size, gk->socket, &rx_conf, gk->mbuf_pool);
-	if (ret < 0) {
-		printf("rte_eth_tx_queue_setup: err=%d, port=%"PRIu8"\n",
-			ret, gk->rx_port);
-		return -1;
-	}
-
-	fflush(stdout);
-	ret = rte_eth_tx_queue_setup(gk->tx_port, gk->tx_queue,
-		gk->tx_queue_size, gk->socket, &tx_conf);
-	if (ret < 0) {
-		printf("rte_eth_tx_queue_setup: err=%d, "
-			"port=%"PRIu8" queue=%d\n", ret, gk->tx_port,
-			gk->tx_queue);
-		return -1;
-	}
-
-	ret = rte_eth_dev_start(gk->rx_port);
-	if (ret < 0) {
-		printf("rte_pmd_port_start: err=%d, port=%"PRIu8"\n",
-			ret, gk->rx_port);
-		return -1;
-	}
-
-	rte_eth_link_get(gk->rx_port, &link);
-	if (link.link_status) {
-		printf(" RX link Up - speed %u Mbps - %s\n",
-			(uint32_t)link.link_speed,
-			(link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
-			("full-duplex") : ("half-duplex\n"));
-	} else {
-		printf(" RX link Down\n");
-	}
-	rte_eth_promiscuous_enable(gk->rx_port);
-
-	if (gk->rx_port != gk->tx_port) {
-		ret = rte_eth_dev_start(gk->tx_port);
-		if (ret < 0)
-			rte_exit(EXIT_FAILURE, "rte_pmd_port_start: "
-				"err=%d, port=%"PRIu8"\n", ret, gk->tx_port);
-		rte_eth_link_get(gk->rx_port, &link);
-		if (link.link_status) {
-			printf(" TX link Up - speed %u Mbps - %s\n",
-				(uint32_t)link.link_speed,
-				(link.link_duplex == ETH_LINK_FULL_DUPLEX) ?
-				("full-duplex") : ("half-duplex\n"));
-		} else {
-			printf(" TX link Down\n");
-		}
-		rte_eth_promiscuous_enable(gk->tx_port);
-	}
-
-	return 0;
-}
 
 enum dst_queues_pos {
 	e_DST_QUEUES_QUEUE_META,
@@ -251,6 +168,7 @@ dst_queues_init(struct gk_data *gk, struct queues_conf *conf)
 
 	dst_queues->pkts_out = NULL;
 	dst_queues->n_pkts_out = 0;
+	dst_queues->n_pkts_in_qs = 0;
 
 	dst_queues->queue = (struct gk_queue *)
 		(dst_queues->memory +
@@ -376,7 +294,7 @@ gk_init(struct gk_conf *gk_conf, struct gk_data *gk, unsigned rx_burst_size)
 	uint32_t socket = rte_lcore_to_socket_id(gk_conf->rx_core);
 
 	gk->mbuf_pool = rte_pktmbuf_pool_create("mbuf_pool",
-		gk_conf->mbuf_pool_size, 4 * rx_burst_size, 0,
+		gk_conf->mbuf_pool_size, rx_burst_size, 0,
 		RTE_MBUF_DEFAULT_BUF_SIZE,
 		rte_eth_dev_socket_id(gk_conf->rx_port));
 	if (gk->mbuf_pool == NULL) {
@@ -391,12 +309,14 @@ gk_init(struct gk_conf *gk_conf, struct gk_data *gk, unsigned rx_burst_size)
 		return -1;
 	}
 
+#if 0
 	gk->req_tx_ring = rte_ring_create("req_tx_ring", gk_conf->tx_ring_size,
 		socket, RING_F_SP_ENQ | RING_F_SC_DEQ);
 	if (gk->req_tx_ring == NULL) {
 		printf("Could not allocate req tx ring\n");
 		return -1;
 	}
+#endif
 
 	gk->dst_rx_ring = rte_ring_create("dst_rx_ring", gk_conf->rx_ring_size,
 		socket, RING_F_SP_ENQ | RING_F_SC_DEQ);
@@ -405,6 +325,7 @@ gk_init(struct gk_conf *gk_conf, struct gk_data *gk, unsigned rx_burst_size)
 		return -1;
 	}
 
+#if 0
 	gk->dst_tx_ring = rte_ring_create("dst_tx_ring", gk_conf->tx_ring_size,
 		socket, RING_F_SP_ENQ | RING_F_SC_DEQ);
 	if (gk->dst_tx_ring == NULL) {
@@ -420,6 +341,7 @@ gk_init(struct gk_conf *gk_conf, struct gk_data *gk, unsigned rx_burst_size)
 		return -1;
 	}
 	gk->n_mbufs = 0;
+#endif
 
 	gk->counter = 0;
 	gk->socket = socket;
@@ -457,6 +379,5 @@ gk_init(struct gk_conf *gk_conf, struct gk_data *gk, unsigned rx_burst_size)
 	gk->wk_req_core = gk_conf->wk_req_core;
 	gk->wk_dst_core = gk_conf->wk_dst_core;
 	gk->rx_core = gk_conf->rx_core;
-
 	return 0;
 }

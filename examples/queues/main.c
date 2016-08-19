@@ -35,6 +35,13 @@
 #include <rte_malloc.h>
 #include <rte_sched.h>
 
+#include <stdint.h>
+#include <inttypes.h>
+#include <rte_eal.h>
+#include <rte_ethdev.h>
+#include <rte_cycles.h>
+#include <rte_lcore.h>
+
 #include "main.h"
 #include "dst.h"
 #include "req.h"
@@ -75,16 +82,11 @@ static struct queues_conf dst_conf = {
 	.num_queues = NUM_QUEUES_DST,
 };
 
-#define NB_MBUF			(2 * 1024)
-
 /* Number of packets to read and write from and to the NIC. */
 #define MAX_PKT_RX_BURST	64
 #define QOS_PKT_ENQUEUE		64
 #define QOS_PKT_DEQUEUE		64
-#define MAX_PKT_TX_BURST	64
-
-#define RX_RING_SIZE	(8 * 1024)
-#define TX_RING_SIZE	(8 * 1024)
+#define MAX_PKT_TX_BURST	32
 
 #define RX_DESC_DEFAULT 128
 #define TX_DESC_DEFAULT 256
@@ -106,8 +108,13 @@ static struct queues_conf dst_conf = {
 #define WK_DST_CORE	11
 #define RX_CORE		12
 
+#define RX_RING_SIZE 128
+#define TX_RING_SIZE 512
+#define NUM_MBUFS 8191
+#define MBUF_CACHE_SIZE 250
+
 static struct gk_conf gk_conf = {
-	.mbuf_pool_size = NB_MBUF,
+	.mbuf_pool_size = NUM_MBUFS,
 	.frame_overhead = QUEUES_FRAME_OVERHEAD,
 
 	.rx_burst_size = MAX_PKT_RX_BURST,
@@ -118,8 +125,8 @@ static struct gk_conf gk_conf = {
 	.rx_ring_size = RX_RING_SIZE,
 	.tx_ring_size = TX_RING_SIZE,
 
-	.rx_queue_size = RX_DESC_DEFAULT,
-	.tx_queue_size = TX_DESC_DEFAULT,
+	.rx_queue_size = RX_RING_SIZE,
+	.tx_queue_size = TX_RING_SIZE,
 
 	.rx_pthresh = RX_PTHRESH,
 	.rx_hthresh = RX_HTHRESH,
@@ -167,19 +174,71 @@ main_loop(void *arg)
 	return 0;
 }
 
+static const struct rte_eth_conf port_conf_default = {
+	.rxmode = { .max_rx_pkt_len = ETHER_MAX_LEN, },
+};
+
+static inline int
+port_init(struct gk_data *gk)
+{
+	int ret = rte_eth_dev_configure(gk->rx_port, 1, 1, &port_conf_default);
+	if (ret < 0) {
+		printf("Cannot configure device: "
+			"err=%d, port=%"PRIu8"\n", ret, gk->rx_port);
+		return -1;
+	}
+
+	ret = rte_eth_rx_queue_setup(gk->rx_port, gk->rx_queue,
+		gk->rx_queue_size,
+		rte_eth_dev_socket_id(gk->rx_port), NULL, gk->mbuf_pool);
+	if (ret < 0) {
+		printf("rte_eth_tx_queue_setup: err=%d, port=%"PRIu8"\n",
+			ret, gk->rx_port);
+		return -1;
+	}
+
+	ret = rte_eth_tx_queue_setup(gk->tx_port, gk->tx_queue,
+		gk->tx_queue_size,
+		rte_eth_dev_socket_id(gk->tx_port), NULL);
+	if (ret < 0) {
+		printf("rte_eth_tx_queue_setup: err=%d, "
+			"port=%"PRIu8" queue=%d\n", ret, gk->tx_port,
+			gk->tx_queue);
+		return -1;
+	}
+
+	ret = rte_eth_dev_start(gk->rx_port);
+	if (ret < 0) {
+		printf("rte_pmd_port_start: err=%d, port=%"PRIu8"\n",
+			ret, gk->rx_port);
+		return -1;
+	}
+	rte_eth_promiscuous_enable(gk->rx_port);
+
+	if (gk->rx_port != gk->tx_port) {
+		int ret = rte_eth_dev_start(gk->tx_port);
+		if (ret < 0)
+			rte_exit(EXIT_FAILURE, "rte_pmd_port_start: "
+				"err=%d, port=%"PRIu8"\n", ret, gk->tx_port);
+		rte_eth_promiscuous_enable(gk->tx_port);
+	}
+
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
-	int ret;
+	/* init EAL */
+	int ret = rte_eal_init(argc, argv);
+	unsigned i;
 
-	ret = rte_eal_init(argc, argv);
 	if (ret < 0)
-		return -1;
-
+		rte_exit(EXIT_FAILURE, "Error with EAL initialization\n");
 	argc -= ret;
 	argv += ret;
 
-	ret = gk_init(&gk_conf, &gk, MAX_PKT_RX_BURST);
+	ret = gk_init(&gk_conf, &gk, MBUF_CACHE_SIZE / 4);
 	if (ret < 0)
 		return -1;
 
@@ -195,5 +254,11 @@ main(int argc, char **argv)
 		return -1;
 
 	rte_eal_mp_remote_launch(main_loop, &gk, CALL_MASTER);
+
+	RTE_LCORE_FOREACH_SLAVE(i) {
+		if (rte_eal_wait_lcore(i) < 0)
+			return -1;
+	}
+
 	return 0;
 }
