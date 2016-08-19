@@ -8,6 +8,8 @@ This example also enables Flow Director on port 1. Since bonded ports do not sup
 
 This example also includes a commented-out call to set up an ntuple filter. Bonded ports do not support ntuple filter, and unlike Flow Director, you cannot apply ntuple filter to a slave port either.
 
+Finally, this example enables VLAN stripping to show that bonded ports support VLAN stripping.
+
 ## Setup
 
 Go to the `examples/bonding` directory:
@@ -26,6 +28,8 @@ Note: the application should be run with lcore 10 to work properly.
 
 ## Packet Generation
 
+### Generally Testing Bonded Ports
+
 You can use the `pktgen` application to generate packets. In a third terminal, issue this command:
 
     $ sudo ./pktgen -c 0xe000 --socket-mem 256 --file-prefix pg -b 83:00.0 -b 83:00.1 -b 85:00.0 -- -T -P -m "[14:15].0"
@@ -38,11 +42,11 @@ Then send packets with:
 
     Pktgen> start 0
 
-This packet should be sent to queue 0.
-
 You could also start `pktgen` with the other port and observe that the behavior is the same since the ports are bonded:
 
     $ sudo ./pktgen -c 0xe000 --socket-mem 256 --file-prefix pg -b 83:00.0 -b 83:00.1 -b 85:00.1 -- -T -P -m "[14:15].0"
+
+### Testing RSS
 
 You can change the destination IP address using the following command:
 
@@ -50,10 +54,21 @@ You can change the destination IP address using the following command:
 
 By changing the destination IP address (perhaps a few times), you should be able to see the packets being directed to a different queue by RSS.
 
+### Testing Flow Director
+
 To test the Flow Director, you can change the packets to be BGP packets (with the following destination IP address and destination port):
 
     Pktgen> set ip dst 0 192.168.57.12
     Pktgen> set 0 dport 179
+
+### Testing VLAN Stripping
+
+To send VLAN packets with VLAN ID 999 (0x03e7), use these commands:
+
+    Pktgen> vlan 0 enable
+    Pktgen> set 0 vlanid 999
+
+When the packets arrived on the bonded port, you will see that it has been stripped off.
 
 ## Known Issues
 

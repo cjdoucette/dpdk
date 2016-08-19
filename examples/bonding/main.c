@@ -63,8 +63,8 @@ static const struct rte_eth_conf port_conf = {
 		.split_hdr_size = 0,
 		.header_split   = 0, /**< Header Split disabled. */
 		.hw_ip_checksum = 0, /**< IP checksum offload disabled. */
-		.hw_vlan_filter = 1, /**< VLAN filtering enabled. */
-		.hw_vlan_strip  = 1, /**< VLAN strip enabled. */
+		.hw_vlan_filter = 0, /**< VLAN filtering disabled. */
+		.hw_vlan_strip  = 1, /**< VLAN strip disabled. */
 		.hw_vlan_extend = 0, /**< Extended VLAN disabled. */
 		.jumbo_frame    = 0, /**< Jumbo Frame Support disabled. */
 		.hw_strip_crc   = 0, /**< CRC stripping by hardware disabled. */
@@ -364,8 +364,8 @@ rx_packets(uint8_t portid, uint16_t queueid)
 			portid, queueid, nb_rx);
 		for (buf = 0; buf < nb_rx; buf++) {
 			struct rte_mbuf *mbuf = bufs[buf];
-			//unsigned int len = rte_pktmbuf_data_len(mbuf);
-			//rte_pktmbuf_dump(stdout, mbuf, len);
+			unsigned int len = rte_pktmbuf_data_len(mbuf);
+			rte_pktmbuf_dump(stdout, mbuf, len);
 			rte_pktmbuf_free(mbuf);
 		}
 	}
