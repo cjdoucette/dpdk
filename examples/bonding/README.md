@@ -6,6 +6,8 @@ This example enables RSS on the bond port, and sets up multiple queues on the bo
 
 This example also enables Flow Director on port 1. Since bonded ports do not support Flow Director, currently the only way to use Flow Director is to set it up on a specific port (or set of ports) and have an lcore listen on that port and thread. When a packet comes in (in this case, a BGP packet), the slave port using Flow Director seems to be prioritized.
 
+This example also includes a commented-out call to set up an ntuple filter. Bonded ports do not support ntuple filter, and unlike Flow Director, you cannot apply ntuple filter to a slave port either.
+
 ## Setup
 
 Go to the `examples/bonding` directory:

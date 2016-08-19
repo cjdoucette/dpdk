@@ -199,6 +199,52 @@ bond_port_init(struct rte_mempool *mbuf_pool)
 #define TCP_BGP_PORT	179
 #define KNI_IP_ADDR	"192.168.57.12"
 
+#if 0
+static void
+add_ntuple_filter(uint8_t port)
+{
+	uint32_t ntuple_ip_addr;
+	int ret = 0;
+
+	struct rte_eth_ntuple_filter filter = {
+		.flags = RTE_5TUPLE_FLAGS,
+		.dst_ip = 0, /* Set below. */
+		.dst_ip_mask = UINT32_MAX, /* Enable. */
+		.src_ip = 0,
+		.src_ip_mask = 0, /* Disable. */
+		.dst_port = TCP_BGP_PORT,
+		.dst_port_mask = UINT16_MAX, /* Enable. */
+		.src_port = 0,
+		.src_port_mask = 0, /* Disable. */
+		.proto = 0,
+		.proto_mask = 0, /* Disable. */
+		.tcp_flags = 0,
+		.priority = 1, /* Lowest. */
+		.queue = 0,
+	};
+
+	ret = rte_eth_dev_filter_supported(port, RTE_ETH_FILTER_NTUPLE);
+	if (ret < 0) {
+		printf("ntuple filter is not supported on port %u.\n",
+			port);
+		return;
+	}
+
+	ret = inet_pton(AF_INET, KNI_IP_ADDR, &ntuple_ip_addr);
+	if (ret == 0) {
+		printf("%s is not a valid address in AF_INET\n", KNI_IP_ADDR);
+		return;
+	} else if (ret == -1) {
+		perror("inet_pton");
+		return;
+	}
+
+	filter.dst_ip = ntuple_ip_addr;
+	rte_eth_dev_filter_ctrl(port, RTE_ETH_FILTER_NTUPLE,
+		RTE_ETH_FILTER_ADD, &filter);
+}
+#endif
+
 static void
 add_fdir_filter(uint8_t port_id)
 {
@@ -380,6 +426,7 @@ main(int argc, char *argv[])
 	bond_port = bond_port_init(mbuf_pool);
 	rss_setup(bond_port);
 	add_fdir_filter(1);
+//	add_ntuple_filter(1);
 
 	if (rte_lcore_count() != 3)
 		printf("\nWARNING: app needs 3 lcores: 10, 11, and 12\n");
