@@ -4,6 +4,8 @@ This sample application demonstrates how to bond multiple Ethernet ports.
 
 This example enables RSS on the bond port, and sets up multiple queues on the bond port to show RSS working. Configuring multiple queues on the slave ports does not seem to be necessary.
 
+This example also enables Flow Director on port 1. Since bonded ports do not support Flow Director, currently the only way to use Flow Director is to set it up on a specific port (or set of ports) and have an lcore listen on that port and thread. When a packet comes in (in this case, a BGP packet), the slave port using Flow Director seems to be prioritized.
+
 ## Setup
 
 Go to the `examples/bonding` directory:
@@ -42,9 +44,14 @@ You could also start `pktgen` with the other port and observe that the behavior 
 
 You can change the destination IP address using the following command:
 
-    $ set ip dst 0 192.168.57.12
+    Pktgen> set ip dst 0 192.168.57.12
 
 By changing the destination IP address (perhaps a few times), you should be able to see the packets being directed to a different queue by RSS.
+
+To test the Flow Director, you can change the packets to be BGP packets (with the following destination IP address and destination port):
+
+    Pktgen> set ip dst 0 192.168.57.12
+    Pktgen> set 0 dport 179
 
 ## Known Issues
 

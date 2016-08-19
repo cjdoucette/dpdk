@@ -76,6 +76,19 @@ static const struct rte_eth_conf port_conf = {
 			.rss_hf = ETH_RSS_IP,
 		},
 	},
+	.fdir_conf = {
+		.mode = RTE_FDIR_MODE_PERFECT,
+		.pballoc = RTE_FDIR_PBALLOC_64K,
+		.status = RTE_FDIR_REPORT_STATUS,
+		.drop_queue = 127,
+		.mask = {
+			.ipv4_mask = {
+				.dst_ip = 0xFFFFFFFF,
+				.proto = 0xFF,
+			},
+			.dst_port_mask = 0xFFFF,
+		},
+	},
 };
 
 #define PRINT_MAC(addr)		printf("%02"PRIx8":%02"PRIx8":%02"PRIx8 \
@@ -183,6 +196,61 @@ bond_port_init(struct rte_mempool *mbuf_pool)
 	return bond_port;
 }
 
+#define TCP_BGP_PORT	179
+#define KNI_IP_ADDR	"192.168.57.12"
+
+static void
+add_fdir_filter(uint8_t port_id)
+{
+	struct rte_eth_fdir_filter entry;
+	uint32_t kni_ip_addr;
+	int ret = 0;
+
+	ret = rte_eth_dev_filter_supported(port_id, RTE_ETH_FILTER_FDIR);
+	if (ret < 0) {
+		printf("flow director is not supported on port %u.\n",
+			port_id);
+		return;
+	}
+	memset(&entry, 0, sizeof(struct rte_eth_fdir_filter));
+
+	ret = inet_pton(AF_INET, KNI_IP_ADDR, &kni_ip_addr);
+	if (ret == 0) {
+		printf("%s is not a valid address in AF_INET\n", KNI_IP_ADDR);
+		return;
+	} else if (ret == -1) {
+		perror("inet_pton");
+		return;
+	}
+
+	entry.input.flow_type = RTE_ETH_FLOW_NONFRAG_IPV4_TCP;
+	entry.input.flow.ip4_flow.dst_ip = kni_ip_addr;
+	entry.input.flow.udp4_flow.dst_port = rte_cpu_to_be_16(TCP_BGP_PORT);
+
+	entry.input.flow_ext.is_vf = 0;
+
+	entry.action.behavior = RTE_ETH_FDIR_ACCEPT;
+	entry.action.flex_off = 0;  /* Use 0 by default. */
+	entry.action.report_status = RTE_ETH_FDIR_REPORT_ID;
+	entry.action.rx_queue = 0;
+
+	/* XXX Probably need to increment with every filter. */
+	entry.soft_id = 0;
+
+	ret = rte_eth_dev_filter_ctrl(port_id, RTE_ETH_FILTER_FDIR,
+		RTE_ETH_FILTER_ADD, &entry);
+
+/*
+	ret = rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_FDIR,
+		RTE_ETH_FILTER_DELETE, &entry);
+	ret = rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_FDIR,
+		RTE_ETH_FILTER_UPDATE, &entry);
+*/
+	if (ret < 0)
+		printf("flow director programming error: (%s)\n",
+			strerror(-ret));
+}
+
 static void
 rss_setup(uint8_t portid)
 {
@@ -266,6 +334,8 @@ main_loop(void *arg)
 
 	switch (lcore_id) {
 	case LCORE_ID_Q0:
+		/* Listen specially using Flow Director. */
+		portid = 1;
 		queueid = 0;
 		break;
 	case LCORE_ID_Q1:
@@ -309,6 +379,7 @@ main(int argc, char *argv[])
 	slave_port_init(1, mbuf_pool);
 	bond_port = bond_port_init(mbuf_pool);
 	rss_setup(bond_port);
+	add_fdir_filter(1);
 
 	if (rte_lcore_count() != 3)
 		printf("\nWARNING: app needs 3 lcores: 10, 11, and 12\n");
