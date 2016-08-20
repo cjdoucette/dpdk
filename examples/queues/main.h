@@ -59,16 +59,9 @@ struct gk_data {
 
 	/* Rings for RX, worker, and TX lcores to communicate if needed. */
 	struct rte_ring *req_rx_ring;
-	struct rte_ring *req_tx_ring;
 
 	struct rte_ring *dst_rx_ring;
-	struct rte_ring *dst_tx_ring;
 
-	/* Array of packets that are going to be transmitted next. */
-	struct rte_mbuf **m_table;
-
-	/* Number of packets to be transmitted next. */
-	uint32_t n_mbufs;
 	/*
 	 * The tx thread transmits packets once a threshold is reached,
 	 * so this counter is used to make sure that even if the

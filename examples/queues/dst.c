@@ -48,8 +48,6 @@ dst_send_burst(struct gk_data *gk, struct dst_queues *dst_queues)
 	do {
 		ret = rte_eth_tx_burst(gk->tx_port, gk->tx_queue,
 			dst_queues->pkts_out + sent, dst_queues->n_pkts_out);
-		if (ret != 0)
-			printf("dst sent %hu packets\n", ret);
 
 		/* We cannot drop the packets, so re-send. */
 		dst_queues->n_pkts_out -= ret;

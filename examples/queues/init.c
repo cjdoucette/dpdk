@@ -41,25 +41,6 @@
 
 //#define SYS_CPU_DIR "/sys/devices/system/cpu/cpu%u/topology/"
 
-static const struct rte_eth_conf port_conf_default = {
-	.rxmode = {
-		.max_rx_pkt_len = ETHER_MAX_LEN,
-#if 0
-		.split_hdr_size = 0,
-		.header_split   = 0, /**< Header Split disabled */
-		.hw_ip_checksum = 0, /**< IP checksum offload disabled */
-		.hw_vlan_filter = 0, /**< VLAN filtering disabled */
-		.jumbo_frame    = 0, /**< Jumbo Frame Support disabled */
-		.hw_strip_crc   = 0, /**< CRC stripped by hardware */
-#endif
-	},
-/*
-	.txmode = {
-		.mq_mode = ETH_DCB_NONE,
-	},
-*/
-};
-
 #if 0
 static uint32_t
 app_cpu_core_count(void)
@@ -309,39 +290,12 @@ gk_init(struct gk_conf *gk_conf, struct gk_data *gk, unsigned rx_burst_size)
 		return -1;
 	}
 
-#if 0
-	gk->req_tx_ring = rte_ring_create("req_tx_ring", gk_conf->tx_ring_size,
-		socket, RING_F_SP_ENQ | RING_F_SC_DEQ);
-	if (gk->req_tx_ring == NULL) {
-		printf("Could not allocate req tx ring\n");
-		return -1;
-	}
-#endif
-
 	gk->dst_rx_ring = rte_ring_create("dst_rx_ring", gk_conf->rx_ring_size,
 		socket, RING_F_SP_ENQ | RING_F_SC_DEQ);
 	if (gk->dst_rx_ring == NULL) {
 		printf("Could not allocate dst rx ring\n");
 		return -1;
 	}
-
-#if 0
-	gk->dst_tx_ring = rte_ring_create("dst_tx_ring", gk_conf->tx_ring_size,
-		socket, RING_F_SP_ENQ | RING_F_SC_DEQ);
-	if (gk->dst_tx_ring == NULL) {
-		printf("Could not allocate dst tx ring\n");
-		return -1;
-	}
-
-	gk->m_table = rte_malloc("m_table",
-		sizeof(struct rte_mbuf *) * gk_conf->tx_burst_size,
-		RTE_CACHE_LINE_SIZE);
-	if (gk->m_table == NULL) {
-		printf("Could not allocate m_table\n");
-		return -1;
-	}
-	gk->n_mbufs = 0;
-#endif
 
 	gk->counter = 0;
 	gk->socket = socket;
