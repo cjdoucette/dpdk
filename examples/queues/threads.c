@@ -106,22 +106,6 @@ dst_thread(struct gk_data *gk, struct dst_queues *dst_queues)
 void
 rx_thread(struct gk_data *gk)
 {
-#if 0
-		const uint16_t nb_rx = rte_eth_rx_burst(gk->rx_port,
-			//gk->rx_queue, rx_mbufs, gk->rx_burst_size);
-			gk->rx_queue, rx_mbufs, 64);
-
-		if (unlikely(nb_rx == 0))
-			continue;
-
-		printf("received %hu packets\n", nb_rx);
-
-		const uint16_t nb_tx = rte_eth_tx_burst(gk->tx_port, 0,
-			rx_mbufs, nb_rx);
-
-		printf("sent %hu packets\n", nb_tx);
-#endif
-
 	struct rte_mbuf *rx_mbufs[gk->rx_burst_size] __rte_cache_aligned;
 	struct rte_mbuf *req_mbufs[gk->rx_burst_size] __rte_cache_aligned;
 	struct rte_mbuf *dst_mbufs[gk->rx_burst_size] __rte_cache_aligned;
@@ -137,6 +121,7 @@ rx_thread(struct gk_data *gk)
 
 		if (likely(nb_rx != 0)) {
 			uint32_t i;
+			int ret = 0;
 
 			printf("received %u packets\n", nb_rx);
 			for (i = 0; i < nb_rx; i++) {
@@ -151,19 +136,25 @@ rx_thread(struct gk_data *gk)
 				}
 			}
 
-			/* Enqueue request packets for further processing. */
-			if (unlikely(rte_ring_sp_enqueue_bulk(gk->req_rx_ring,
-				(void **)req_mbufs, nb_req) != 0)) {
-				for (i = 0; i < nb_req; i++)
-					rte_pktmbuf_free(req_mbufs[i]);
-			}
+			/*
+			 * Enqueue request packets for further processing.
+			 * Keep trying to enqueue until there's room in
+			 * in the ring.
+			 */
+			do {
+				ret = rte_ring_sp_enqueue_bulk(gk->req_rx_ring,
+					(void **)req_mbufs, nb_req);
+			} while (ret != 0);
 
-			/* Enqueue priority packets for further processing. */
-			if (unlikely(rte_ring_sp_enqueue_bulk(gk->dst_rx_ring,
-				(void **)dst_mbufs, nb_dst) != 0)) {
-				for (i = 0; i < nb_dst; i++)
-					rte_pktmbuf_free(dst_mbufs[i]);
-			}
+			/*
+			 * Enqueue destination packets for further processing.
+			 * Keep trying to enqueue until there's room in
+			 * in the ring.
+			 */
+			do {
+				ret = rte_ring_sp_enqueue_bulk(gk->dst_rx_ring,
+					(void **)dst_mbufs, nb_dst);
+			} while (ret != 0);
 		}
 	}
 }

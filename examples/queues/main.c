@@ -108,8 +108,13 @@ static struct queues_conf dst_conf = {
 #define WK_DST_CORE	11
 #define RX_CORE		12
 
-#define RX_RING_SIZE 128
-#define TX_RING_SIZE 512
+#define RX_RING_SIZE	512
+#define TX_RING_SIZE	512
+
+#define RX_QUEUE_SIZE	128
+#define TX_QUEUE_SIZE	512
+
+
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 250
 
@@ -125,8 +130,8 @@ static struct gk_conf gk_conf = {
 	.rx_ring_size = RX_RING_SIZE,
 	.tx_ring_size = TX_RING_SIZE,
 
-	.rx_queue_size = RX_RING_SIZE,
-	.tx_queue_size = TX_RING_SIZE,
+	.rx_queue_size = RX_QUEUE_SIZE,
+	.tx_queue_size = TX_QUEUE_SIZE,
 
 	.rx_pthresh = RX_PTHRESH,
 	.rx_hthresh = RX_HTHRESH,
