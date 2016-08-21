@@ -123,14 +123,14 @@ rx_thread(struct gk_data *gk)
 			uint32_t i;
 			int ret = 0;
 
-			printf("received %u packets\n", nb_rx);
+			//printf("received %u packets\n", nb_rx);
 			for (i = 0; i < nb_rx; i++) {
 				get_pkt_sched(rx_mbufs[i], &type, &queue);
 
 				if (type == GK_REQ_PKT) {
 					req_mbufs[nb_req++] = rx_mbufs[i];
 				} else if (type == GK_CAP_PKT) {
-					dst_mbufs[nb_dst++] = rx_mbufs[i];	
+					dst_mbufs[nb_dst++] = rx_mbufs[i];
 				} else {
 					rte_pktmbuf_free(rx_mbufs[i]);
 				}

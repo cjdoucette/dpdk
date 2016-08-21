@@ -36,7 +36,9 @@
 
 #include <rte_reciprocal.h>
 #include <rte_random.h>
+#include <rte_meter.h>
 #include "bitmap.h"
+#include "rte_red.h"
 
 #define RTE_LOGTYPE_APP RTE_LOGTYPE_USER1
 
@@ -154,11 +156,17 @@ struct queues_conf {
 	/* Queue base calculation */
 	uint16_t qsize;
 	uint16_t num_queues;
+
+	struct rte_red_params red_params[e_RTE_METER_COLORS];
 };
 
 struct gk_queue {
 	uint16_t qw;
 	uint16_t qr;
+};
+
+struct gk_queue_extra {
+        struct rte_red red;
 };
 
 struct dst_queues {
@@ -191,7 +199,10 @@ struct dst_queues {
 	uint32_t n_pkts_out;
 	uint32_t n_pkts_in_qs;
 
+	struct rte_red_config red_config[e_RTE_METER_COLORS];
+
 	struct gk_queue *queue;
+	struct gk_queue_extra *queue_extra;
 	uint8_t *bmp_array;
 	struct rte_mbuf **queue_array;
 	uint8_t memory[0] __rte_cache_aligned;
@@ -252,14 +263,15 @@ struct req_queue {
 struct gk_queue_hierarchy {
 	uint16_t type;
 	uint16_t queue;
-	uint32_t unused;
+	uint16_t color;
+	uint16_t unused;
 };
 
 static inline int
 get_pkt_sched(struct rte_mbuf *m, uint32_t *type, uint32_t *queue)
 {
 	/* uint16_t *pdata = rte_pktmbuf_mtod(m, uint16_t *); */
-
+	uint32_t color;
 	struct gk_queue_hierarchy *sched =
 		(struct gk_queue_hierarchy *)&m->hash.sched;
 
@@ -268,14 +280,17 @@ get_pkt_sched(struct rte_mbuf *m, uint32_t *type, uint32_t *queue)
 	//*type = (rte_rand() % 100) < 5 ? GK_REQ_PKT : GK_CAP_PKT;
 	*type = GK_CAP_PKT;
 	*queue = *type == GK_REQ_PKT ? 0 : rte_rand() % 4096;
+	color = *type == GK_REQ_PKT ? 0 : rte_rand() % e_RTE_METER_COLORS;
 
 	sched->type = *type;
 	sched->queue = *queue;
+	sched->color = color;
 	return 0;
 }
 
 static inline void
-pkt_read_tree_path(const struct rte_mbuf *pkt, uint32_t *type, uint32_t *queue)
+pkt_read_tree_path(const struct rte_mbuf *pkt, uint32_t *type,
+	uint32_t *queue)
 {
 	const struct gk_queue_hierarchy *sched
 		= (const struct gk_queue_hierarchy *)&pkt->hash.sched;

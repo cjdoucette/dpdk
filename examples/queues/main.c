@@ -68,6 +68,8 @@ static struct queues_conf req_conf = {
 
 	.qsize = GK_REQ_QUEUE_MAX_LENGTH,
 	.num_queues = GK_NUM_REQ_PRIORITIES,
+
+	/* RED queues are not used. */
 };
 
 static struct queues_conf dst_conf = {
@@ -80,6 +82,18 @@ static struct queues_conf dst_conf = {
 
 	.qsize = DEFAULT_QUEUE_SIZE,
 	.num_queues = NUM_QUEUES_DST,
+
+	.red_params = {
+		/* Green. */
+		[0] = {.min_th   = 48, .max_th  = 64,
+		       .maxp_inv = 10, .wq_log2 = 9},
+		/* Yellow. */
+		[1] = {.min_th   = 40, .max_th  = 64,
+		       .maxp_inv = 10, .wq_log2 = 9},
+		/* Red. */
+		[2] = {.min_th   = 32, .max_th  = 64,
+		       .maxp_inv = 10, .wq_log2 = 9},
+	},
 };
 
 /* Number of packets to read and write from and to the NIC. */

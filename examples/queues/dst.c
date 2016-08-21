@@ -48,7 +48,7 @@ dst_send_burst(struct gk_data *gk, struct dst_queues *dst_queues)
 	do {
 		ret = rte_eth_tx_burst(gk->tx_port, gk->tx_queue,
 			dst_queues->pkts_out + sent, dst_queues->n_pkts_out);
-		printf("dst sent %hu packets\n", ret);
+		//printf("dst sent %hu packets\n", ret);
 
 		/* We cannot drop the packets, so re-send. */
 		dst_queues->n_pkts_out -= ret;
@@ -68,7 +68,6 @@ static inline uint32_t
 enqueue_qptrs_prefetch0(struct dst_queues *dst_queues, struct rte_mbuf *pkt)
 {
 	uint32_t type, qindex;
-	/* XXX Should we still store the type and queue with each packet? */
 	pkt_read_tree_path(pkt, &type, &qindex);
 	rte_prefetch0(dst_queues->queue + qindex);
 	return qindex;
@@ -102,6 +101,36 @@ enqueue_qwa_prefetch0(struct dst_queues *dst_queues, uint32_t qindex,
 	rte_bitmap_prefetch0(dst_queues->bmp, qindex);
 }
 
+static inline enum rte_meter_color
+pkt_read_color(const struct rte_mbuf *pkt)
+{
+        const struct gk_queue_hierarchy *sched
+                = (const struct gk_queue_hierarchy *) &pkt->hash.sched;
+
+        return (enum rte_meter_color)sched->color;
+}
+
+static inline int
+red_drop(struct dst_queues *dst_queues, struct rte_mbuf *pkt,
+	uint32_t qindex, uint16_t qlen)
+{
+        struct gk_queue_extra *qe;
+        struct rte_red_config *red_cfg;
+        struct rte_red *red;
+        enum rte_meter_color color;
+
+        color = pkt_read_color(pkt);
+        red_cfg = &dst_queues->red_config[color];
+
+        if ((red_cfg->min_th | red_cfg->max_th) == 0)
+                return 0;
+
+        qe = dst_queues->queue_extra + qindex;
+        red = &qe->red;
+
+        return rte_red_enqueue(red_cfg, red, qlen, dst_queues->time);
+}
+
 /*
  * Based on rte_sched_port_enqueue_qwa().
  */
@@ -115,8 +144,11 @@ enqueue_qwa(struct dst_queues *dst_queues, uint32_t qindex,
 	q = dst_queues->queue + qindex;
 	qlen = q->qw - q->qr;
 
-	/* XXX Add RED drop here. */
-	if (unlikely(qlen >= dst_queues->qsize)) {
+	if (unlikely(red_drop(dst_queues, pkt, qindex, qlen) ||
+			qlen >= dst_queues->qsize)) {
+		/* XXX Update stats. */
+		if (qlen < dst_queues->qsize)
+			printf("red drop\n");
 		rte_pktmbuf_free(pkt);
 		return 0;
 	}
@@ -298,6 +330,15 @@ credits_check(struct dst_queues *dst_queues, struct rte_mbuf *pkt)
 	return 1;
 }
 
+static inline void
+set_queue_empty_timestamp(struct dst_queues *dst_queues, uint32_t qindex)
+{
+        struct gk_queue_extra *qe = dst_queues->queue_extra + qindex;
+        struct rte_red *red = &qe->red;
+
+        rte_red_mark_queue_empty(red, dst_queues->time);
+}
+
 static void
 __dst_dequeue(struct dst_queues *dst_queues, uint32_t num_pkts)
 {
@@ -327,8 +368,8 @@ __dst_dequeue(struct dst_queues *dst_queues, uint32_t num_pkts)
 
 	if (q->qr == q->qw) {
 		rte_bitmap_clear(dst_queues->bmp, dst_queues->cur_queue);
-		/* XXX rte_sched_port_set_queue_empty_timestamp(). */
-	} 
+		set_queue_empty_timestamp(dst_queues, dst_queues->cur_queue);
+	}
 }
 
 static inline void

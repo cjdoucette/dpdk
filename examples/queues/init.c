@@ -66,6 +66,7 @@ app_cpu_core_count(void)
 
 enum dst_queues_pos {
 	e_DST_QUEUES_QUEUE_META,
+	e_DST_QUEUES_QUEUE_EXTRA,
 	e_DST_QUEUES_BITMAP,
 	e_DST_QUEUES_QUEUE_ARRAY,
 	e_DST_QUEUES_TOTAL
@@ -76,6 +77,7 @@ dst_queues_offset(struct queues_conf *conf, enum dst_queues_pos pos)
 {
 	uint32_t n_queues = conf->num_queues;
 	uint32_t size_queue_meta = n_queues * sizeof(struct gk_queue);
+	uint32_t size_queue_extra = n_queues * sizeof(struct gk_queue_extra);
 	uint32_t size_bmp_array = rte_bitmap_get_memory_footprint(n_queues);
 	uint32_t size_queue = conf->qsize * sizeof(struct rte_mbuf *);
 	uint32_t size_queue_array = n_queues * size_queue;
@@ -89,6 +91,10 @@ dst_queues_offset(struct queues_conf *conf, enum dst_queues_pos pos)
 	if (pos == e_DST_QUEUES_QUEUE_META)
 		return base;
 	base += RTE_CACHE_LINE_ROUNDUP(size_queue_meta);
+
+	if (pos == e_DST_QUEUES_QUEUE_EXTRA)
+		return base;
+	base += RTE_CACHE_LINE_ROUNDUP(size_queue_extra);
 
 	if (pos == e_DST_QUEUES_BITMAP)
 		return base;
@@ -116,6 +122,7 @@ dst_queues_init(struct gk_data *gk, struct queues_conf *conf)
 	struct dst_queues *dst_queues = NULL;
 	uint32_t mem_size, bmp_mem_size, cycles_per_byte;
 	double d = RTE_SCHED_TB_RATE_CONFIG_ERR;
+	uint32_t i;
 
 	mem_size = dst_queues_mem_size(conf);
 	if (mem_size == 0)
@@ -157,9 +164,27 @@ dst_queues_init(struct gk_data *gk, struct queues_conf *conf)
 	dst_queues->n_pkts_out = 0;
 	dst_queues->n_pkts_in_qs = 0;
 
+	for (i = 0; i < e_RTE_METER_COLORS; i++) {
+		/* If min/max are both zero, then RED is disabled. */
+		if ((conf->red_params[i].min_th |
+		     conf->red_params[i].max_th) == 0)
+			continue;
+
+		if (rte_red_config_init(&dst_queues->red_config[i],
+			conf->red_params[i].wq_log2,
+			conf->red_params[i].min_th,
+			conf->red_params[i].max_th,
+			conf->red_params[i].maxp_inv) != 0)
+			return NULL;
+	}
+
 	dst_queues->queue = (struct gk_queue *)
 		(dst_queues->memory +
 		dst_queues_offset(conf, e_DST_QUEUES_QUEUE_META));
+
+	dst_queues->queue_extra = (struct gk_queue_extra *)
+		(dst_queues->memory +
+		dst_queues_offset(conf, e_DST_QUEUES_QUEUE_EXTRA));
 
 	dst_queues->bmp_array = dst_queues->memory +
 		dst_queues_offset(conf, e_DST_QUEUES_BITMAP);
