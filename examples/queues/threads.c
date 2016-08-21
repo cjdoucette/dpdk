@@ -63,11 +63,11 @@ req_thread(struct gk_data *gk, struct req_queue *req_queue)
 			/* XXX Maintain stats. */
 			nb_pkt = req_enqueue(req_queue, en_mbufs,
 				gk->qos_enqueue_size);
-			(void)nb_pkt;
 		}
 
-		req_dequeue(req_queue, gk->qos_dequeue_size);
-		req_send_burst(gk, req_queue);
+		nb_pkt = req_dequeue(req_queue, gk->qos_dequeue_size);
+		if (nb_pkt > 0)
+			req_send_burst(gk, req_queue);
 	}
 }
 

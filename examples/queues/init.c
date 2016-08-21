@@ -38,8 +38,10 @@
 
 #include "main.h"
 #include "dst.h"
+#include "rte_approx.h"
 
 //#define SYS_CPU_DIR "/sys/devices/system/cpu/cpu%u/topology/"
+#define RTE_SCHED_TB_RATE_CONFIG_ERR          (1e-7)
 
 #if 0
 static uint32_t
@@ -106,11 +108,14 @@ dst_queues_mem_size(struct queues_conf *conf)
 		dst_queues_offset(conf, e_DST_QUEUES_TOTAL);
 }
 
+#define DST_QUEUES_BW_RATE	.95
+
 struct dst_queues *
 dst_queues_init(struct gk_data *gk, struct queues_conf *conf)
 {
 	struct dst_queues *dst_queues = NULL;
 	uint32_t mem_size, bmp_mem_size, cycles_per_byte;
+	double d = RTE_SCHED_TB_RATE_CONFIG_ERR;
 
 	mem_size = dst_queues_mem_size(conf);
 	if (mem_size == 0)
@@ -131,12 +136,13 @@ dst_queues_init(struct gk_data *gk, struct queues_conf *conf)
 	dst_queues->cur_queue = 0;
 
 	/* Token bucket. */
-	dst_queues->tb_time = 0;
-	/* XXX Enforce that this is 95%. */
-	dst_queues->tb_period = conf->tb_period;
-	dst_queues->tb_credits_per_period = conf->tb_credits_per_period;
-	dst_queues->tb_size = conf->tb_size;
+	rte_approx(DST_QUEUES_BW_RATE, d, &dst_queues->tb_credits_per_period,
+		&dst_queues->tb_period);
+
+	dst_queues->tb_size = gk->rate * DST_QUEUES_BW_RATE;
+	/* The DPDK sched library starts the bucket half full. */
 	dst_queues->tb_credits = conf->tb_size / 2;
+	dst_queues->tb_time = 0;
 
 	/* Timing. */
 	dst_queues->time_cpu_cycles = rte_get_tsc_cycles();
@@ -204,12 +210,14 @@ req_queue_mem_size(const uint16_t num_priorities)
 		req_queue_offset(num_priorities, e_REQ_QUEUE_TOTAL);
 }
 
+#define REQ_QUEUE_BW_RATE	.05
+
 struct req_queue *
 req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 {
 	struct req_queue *req_queue = NULL;
 	uint32_t mem_size, bmp_mem_size, cycles_per_byte;
-
+	double d = RTE_SCHED_TB_RATE_CONFIG_ERR;
 
 	mem_size = req_queue_mem_size(conf->num_queues);
 	if (mem_size == 0)
@@ -232,12 +240,13 @@ req_queue_init(struct gk_data *gk, struct queues_conf *conf)
 	req_queue->lowest_priority = conf->num_queues;
 
 	/* Token bucket. */
-	req_queue->tb_time = 0;
-	/* XXX Enforce that this is 5%. */
-	req_queue->tb_period = conf->tb_period;
-	req_queue->tb_credits_per_period = conf->tb_credits_per_period;
-	req_queue->tb_size = conf->tb_size;
+	rte_approx(REQ_QUEUE_BW_RATE, d, &req_queue->tb_credits_per_period,
+		&req_queue->tb_period);
+
+	req_queue->tb_size = gk->rate * REQ_QUEUE_BW_RATE;
+	/* The DPDK sched library starts the bucket half full. */
 	req_queue->tb_credits = conf->tb_size / 2;
+	req_queue->tb_time = 0;
 
 	/* Timing. */
 	req_queue->time_cpu_cycles = rte_get_tsc_cycles();
@@ -303,6 +312,7 @@ gk_init(struct gk_conf *gk_conf, struct gk_data *gk, unsigned rx_burst_size)
 	/* Convert from Mbps to Bps. */
 	rte_eth_link_get(gk->rx_port, &link);
 	gk->rate = (uint64_t)link.link_speed * 1000 * 1000 / 8;
+	printf("rate in bytes per second: %lu\n", gk->rate);
 
 	gk->frame_overhead = gk_conf->frame_overhead;
 

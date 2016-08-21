@@ -57,6 +57,7 @@ req_send_burst(struct gk_data *gk, struct req_queue *req_queue)
 	do {
 		ret = rte_eth_tx_burst(gk->tx_port, gk->tx_queue,
 			req_queue->pkts_out + sent, req_queue->n_pkts_out);
+		printf("req sent %hu packets\n", ret);
 
 		/* We cannot drop the packets, so re-send. */
 		req_queue->n_pkts_out -= ret;
@@ -249,16 +250,12 @@ credits_update(struct req_queue *req_queue)
 static inline int
 credits_check(struct req_queue *req_queue, struct rte_mbuf *pkt)
 {
-	(void)req_queue;
-	(void)pkt;
-#if 0
 	uint32_t pkt_len = pkt->pkt_len + req_queue->frame_overhead;
 
 	if (pkt_len > req_queue->tb_credits)
 		return 0;
 
 	req_queue->tb_credits -= pkt_len;
-#endif
 	return 1;
 }
 

@@ -48,6 +48,7 @@ dst_send_burst(struct gk_data *gk, struct dst_queues *dst_queues)
 	do {
 		ret = rte_eth_tx_burst(gk->tx_port, gk->tx_queue,
 			dst_queues->pkts_out + sent, dst_queues->n_pkts_out);
+		printf("dst sent %hu packets\n", ret);
 
 		/* We cannot drop the packets, so re-send. */
 		dst_queues->n_pkts_out -= ret;
@@ -288,16 +289,12 @@ dst_enqueue(struct dst_queues *dst_queues, struct rte_mbuf **pkts,
 static inline int
 credits_check(struct dst_queues *dst_queues, struct rte_mbuf *pkt)
 {
-	(void)dst_queues;
-	(void)pkt;
-/*
 	uint32_t pkt_len = pkt->pkt_len + dst_queues->frame_overhead;
 
 	if (pkt_len > dst_queues->tb_credits)
 		return 0;
 
 	dst_queues->tb_credits -= pkt_len;
-*/
 	return 1;
 }
 
