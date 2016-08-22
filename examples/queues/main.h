@@ -277,8 +277,7 @@ get_pkt_sched(struct rte_mbuf *m, uint32_t *type, uint32_t *queue)
 
 	/* XXX Replace with lookup and hash. */
 	(void)m;
-	//*type = (rte_rand() % 100) < 5 ? GK_REQ_PKT : GK_CAP_PKT;
-	*type = GK_CAP_PKT;
+	*type = (rte_rand() % 100) < 5 ? GK_REQ_PKT : GK_CAP_PKT;
 	*queue = *type == GK_REQ_PKT ? 0 : rte_rand() % 4096;
 	color = *type == GK_REQ_PKT ? 0 : rte_rand() % e_RTE_METER_COLORS;
 
