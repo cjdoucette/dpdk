@@ -2155,46 +2155,20 @@ bond_ethdev_rss_hash_conf_get(struct rte_eth_dev *dev,
 }
 
 static int
-bond_ethdev_ntuple_filter_handle(struct rte_eth_dev *dev,
-		enum rte_filter_op filter_op, void *arg)
-{
-	(void)dev;
-	(void)filter_op;
-	(void)arg;
-	return 0;
-}
-
-static int
-bond_ethdev_fdir_ctrl_func(struct rte_eth_dev *dev,
-		enum rte_filter_op filter_op, void *arg)
-{
-	(void)dev;
-	(void)filter_op;
-	(void)arg;
-	return 0;
-}
-
-static int
 bond_ethdev_filter_ctrl(struct rte_eth_dev *dev,
 		enum rte_filter_type filter_type, enum rte_filter_op filter_op,
 		void *arg)
 {
-	int ret = -EINVAL;
-
-	switch (filter_type) {
-	case RTE_ETH_FILTER_NTUPLE:
-		ret = bond_ethdev_ntuple_filter_handle(dev, filter_op, arg);
-		break;
-	case RTE_ETH_FILTER_FDIR:
-		ret = bond_ethdev_fdir_ctrl_func(dev, filter_op, arg);
-		break;
-	default:
-		RTE_LOG(WARNING, PMD, "Filter type (%d) not supported",
-			filter_type);
-		break;
+	struct bond_dev_private *internals = dev->data->dev_private;
+	int result;
+	int i;
+	for (i = 0; i < internals->slave_count; i++) {
+		result = rte_eth_dev_filter_ctrl(internals->slaves[i].port_id,
+			filter_type, filter_op, arg);
+		if (result != 0)
+			return result;
 	}
-
-	return ret;
+	return result;
 }
 
 const struct eth_dev_ops default_dev_ops = {
