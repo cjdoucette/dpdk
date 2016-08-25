@@ -42,6 +42,9 @@
 
 #include "rte_eth_bond.h"
 
+#define NUM_RX_QUEUES	3
+#define FILTER_QUEUE	0
+
 #define RTE_RX_DESC_DEFAULT 128
 #define RTE_TX_DESC_DEFAULT 512
 
@@ -71,8 +74,6 @@ static const struct rte_eth_conf port_conf = {
 	},
 	.rx_adv_conf = {
 		.rss_conf = {
-			//.rss_key = NULL,
-			//.rss_key_len = 40,
 			.rss_hf = ETH_RSS_IP,
 		},
 	},
@@ -105,13 +106,13 @@ slave_port_init(uint8_t portid, struct rte_mempool *mbuf_pool)
 	if (portid >= rte_eth_dev_count())
 		rte_exit(EXIT_FAILURE, "Invalid port\n");
 
-	retval = rte_eth_dev_configure(portid, 1, 1, &port_conf);
+	retval = rte_eth_dev_configure(portid, NUM_RX_QUEUES, 1, &port_conf);
 	if (retval != 0)
 		rte_exit(EXIT_FAILURE, "port %u: config failed (res=%d)\n",
 			portid, retval);
 
 	/* RX setup. */
-	for (i = 0; i < 1; i++) {
+	for (i = 0; i < NUM_RX_QUEUES; i++) {
 		retval = rte_eth_rx_queue_setup(portid, i, RTE_RX_DESC_DEFAULT,
 			rte_eth_dev_socket_id(portid), NULL, mbuf_pool);
 		if (retval < 0)
@@ -137,6 +138,7 @@ slave_port_init(uint8_t portid, struct rte_mempool *mbuf_pool)
 	printf("Port %u MAC: ", (unsigned)portid);
 	PRINT_MAC(addr);
 	printf("\n");
+	rte_eth_promiscuous_enable(portid);
 }
 
 static uint8_t
@@ -153,12 +155,12 @@ bond_port_init(struct rte_mempool *mbuf_pool)
 
 	bond_port = (uint8_t)retval;
 
-	retval = rte_eth_dev_configure(bond_port, 3, 1, &port_conf);
+	retval = rte_eth_dev_configure(bond_port, NUM_RX_QUEUES, 1, &port_conf);
 	if (retval != 0)
 		rte_exit(EXIT_FAILURE, "port %u: config failed (res=%d)\n",
 			bond_port, retval);
 
-	for (i = 0; i < 3; i++) {
+	for (i = 0; i < NUM_RX_QUEUES; i++) {
 		retval = rte_eth_rx_queue_setup(bond_port, i,
 			RTE_RX_DESC_DEFAULT, rte_eth_dev_socket_id(bond_port),
 			NULL, mbuf_pool);
@@ -196,56 +198,51 @@ bond_port_init(struct rte_mempool *mbuf_pool)
 	return bond_port;
 }
 
-#define TCP_BGP_PORT	179
-#define KNI_IP_ADDR	"192.168.57.12"
+#define TCP_PORT 179
+#define IP_ADDR	"192.168.57.12"
 
-#if 0
-static void
+static inline int
 add_ntuple_filter(uint8_t port)
 {
-	uint32_t ntuple_ip_addr;
 	int ret = 0;
+	uint16_t dport = htons(TCP_PORT);
+	uint32_t ntuple_ip_addr;
+
+	ret = inet_pton(AF_INET, IP_ADDR, &ntuple_ip_addr);
+	if (ret <= 0) {
+		if (ret == 0) {
+			printf("Error: %s is not in presentation format\n",
+				IP_ADDR);
+		} else if (ret == -1) {
+			perror("inet_pton");
+		}
+		return ret;
+	}
 
 	struct rte_eth_ntuple_filter filter = {
 		.flags = RTE_5TUPLE_FLAGS,
-		.dst_ip = 0, /* Set below. */
-		.dst_ip_mask = UINT32_MAX, /* Enable. */
+		.dst_ip = ntuple_ip_addr, /* Big endian */
+		.dst_ip_mask = UINT32_MAX, /* Enable */
 		.src_ip = 0,
-		.src_ip_mask = 0, /* Disable. */
-		.dst_port = TCP_BGP_PORT,
-		.dst_port_mask = UINT16_MAX, /* Enable. */
+		.src_ip_mask = 0, /* Disable */
+		.dst_port = dport,
+		.dst_port_mask = UINT16_MAX, /* Disable */
 		.src_port = 0,
-		.src_port_mask = 0, /* Disable. */
+		.src_port_mask = 0, /* Disable */
 		.proto = 0,
-		.proto_mask = 0, /* Disable. */
+		.proto_mask = 0, /* Disable */
 		.tcp_flags = 0,
-		.priority = 1, /* Lowest. */
-		.queue = 0,
+		.priority = 1, /* Lowest */
+		.queue = FILTER_QUEUE,
 	};
 
-	ret = rte_eth_dev_filter_supported(port, RTE_ETH_FILTER_NTUPLE);
-	if (ret < 0) {
-		printf("ntuple filter is not supported on port %u.\n",
-			port);
-		return;
-	}
-
-	ret = inet_pton(AF_INET, KNI_IP_ADDR, &ntuple_ip_addr);
-	if (ret == 0) {
-		printf("%s is not a valid address in AF_INET\n", KNI_IP_ADDR);
-		return;
-	} else if (ret == -1) {
-		perror("inet_pton");
-		return;
-	}
-
-	filter.dst_ip = ntuple_ip_addr;
-	rte_eth_dev_filter_ctrl(port, RTE_ETH_FILTER_NTUPLE,
-		RTE_ETH_FILTER_ADD, &filter);
+	return rte_eth_dev_filter_ctrl(port,
+			RTE_ETH_FILTER_NTUPLE,
+			RTE_ETH_FILTER_ADD,
+			&filter);
 }
-#endif
 
-static void
+static inline void
 add_fdir_filter(uint8_t port_id)
 {
 	struct rte_eth_fdir_filter entry;
@@ -260,9 +257,9 @@ add_fdir_filter(uint8_t port_id)
 	}
 	memset(&entry, 0, sizeof(struct rte_eth_fdir_filter));
 
-	ret = inet_pton(AF_INET, KNI_IP_ADDR, &kni_ip_addr);
+	ret = inet_pton(AF_INET, IP_ADDR, &kni_ip_addr);
 	if (ret == 0) {
-		printf("%s is not a valid address in AF_INET\n", KNI_IP_ADDR);
+		printf("%s is not a valid address in AF_INET\n", IP_ADDR);
 		return;
 	} else if (ret == -1) {
 		perror("inet_pton");
@@ -271,14 +268,14 @@ add_fdir_filter(uint8_t port_id)
 
 	entry.input.flow_type = RTE_ETH_FLOW_NONFRAG_IPV4_TCP;
 	entry.input.flow.ip4_flow.dst_ip = kni_ip_addr;
-	entry.input.flow.udp4_flow.dst_port = rte_cpu_to_be_16(TCP_BGP_PORT);
+	entry.input.flow.udp4_flow.dst_port = rte_cpu_to_be_16(TCP_PORT);
 
 	entry.input.flow_ext.is_vf = 0;
 
 	entry.action.behavior = RTE_ETH_FDIR_ACCEPT;
 	entry.action.flex_off = 0;  /* Use 0 by default. */
 	entry.action.report_status = RTE_ETH_FDIR_REPORT_ID;
-	entry.action.rx_queue = 0;
+	entry.action.rx_queue = FILTER_QUEUE;
 
 	/* XXX Probably need to increment with every filter. */
 	entry.soft_id = 0;
@@ -347,55 +344,35 @@ rss_setup(uint8_t portid)
 			portid);
 }
 
-static void
-rx_packets(uint8_t portid, uint16_t queueid)
+static  __attribute__((noreturn)) void
+lcore_main(void)
 {
-	printf("lcore listening on port %hhu queue %hu\n", portid, queueid);
-	for (;;) {
-		struct rte_mbuf *bufs[BURST_SIZE];
-		const uint16_t nb_rx = rte_eth_rx_burst(portid, queueid,
-				bufs, BURST_SIZE);
-		uint16_t buf;
+	printf("\nCore %u forwarding packets. [Ctrl+C to quit]\n",
+			rte_lcore_id());
+	while (1) {
+		uint8_t port = 2;
+		uint16_t queue;
+		for (queue = 0; queue < NUM_RX_QUEUES; queue++) {
+			struct rte_mbuf *bufs[BURST_SIZE];
+			const uint16_t nb_rx = rte_eth_rx_burst(port,
+				queue, bufs, BURST_SIZE);
+			uint16_t buf;
 
-		if (unlikely(nb_rx == 0))
-			continue;
+			if (unlikely(nb_rx == 0))
+				continue;
 
-		printf("port %hhu queue %hu received %hu packets\n",
-			portid, queueid, nb_rx);
-		for (buf = 0; buf < nb_rx; buf++) {
-			struct rte_mbuf *mbuf = bufs[buf];
-			unsigned int len = rte_pktmbuf_data_len(mbuf);
-			rte_pktmbuf_dump(stdout, mbuf, len);
-			rte_pktmbuf_free(mbuf);
+			printf("port %hhu queue %hu rcvd %hu pkts\n",
+				port, queue, nb_rx);
+			for (buf = 0; buf < nb_rx; buf++) {
+				struct rte_mbuf *mbuf = bufs[buf];
+				unsigned int len;
+
+				len = rte_pktmbuf_data_len(mbuf);
+				rte_pktmbuf_dump(stdout, mbuf, len);
+				rte_pktmbuf_free(mbuf);
+			}
 		}
 	}
-}
-
-static int
-main_loop(void *arg)
-{
-	const unsigned lcore_id = rte_lcore_id();
-	uint8_t portid = *(uint8_t *)arg;
-	uint16_t queueid = 0;
-
-	switch (lcore_id) {
-	case LCORE_ID_Q0:
-		/* Listen specially using Flow Director. */
-		portid = 1;
-		queueid = 0;
-		break;
-	case LCORE_ID_Q1:
-		queueid = 1;
-		break;
-	case LCORE_ID_Q2:
-		queueid = 2;
-		break;
-	default:
-		return 0;
-	}
-
-	rx_packets(portid, queueid);
-	return 0;
 }
 
 /* Main function, does initialisation and calls the per-lcore functions */
@@ -403,8 +380,7 @@ int
 main(int argc, char *argv[])
 {
 	struct rte_mempool *mbuf_pool;
-	uint8_t bond_port;
-	unsigned i;
+	uint8_t bond_port = 0;
 
 	/* init EAL */
 	int ret = rte_eal_init(argc, argv);
@@ -425,19 +401,9 @@ main(int argc, char *argv[])
 	slave_port_init(1, mbuf_pool);
 	bond_port = bond_port_init(mbuf_pool);
 	rss_setup(bond_port);
-	add_fdir_filter(1);
-//	add_ntuple_filter(1);
+//	add_fdir_filter(bond_port);
+	add_ntuple_filter(bond_port);
 
-	if (rte_lcore_count() != 3)
-		printf("\nWARNING: app needs 3 lcores: 10, 11, and 12\n");
-
-	/* Launch per-lcore function on every lcore */
-	rte_eal_mp_remote_launch(main_loop, (void *)&bond_port, CALL_MASTER);
-
-	RTE_LCORE_FOREACH_SLAVE(i) {
-		if (rte_eal_wait_lcore(i) < 0)
-			return -1;
-	}
-
+	lcore_main();
 	return 0;
 }

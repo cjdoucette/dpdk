@@ -4,9 +4,7 @@ This sample application demonstrates how to bond multiple Ethernet ports.
 
 This example enables RSS on the bond port, and sets up multiple queues on the bond port to show RSS working. Configuring multiple queues on the slave ports does not seem to be necessary.
 
-This example also enables Flow Director on port 1. Since bonded ports do not support Flow Director, currently the only way to use Flow Director is to set it up on a specific port (or set of ports) and have an lcore listen on that port and thread. When a packet comes in (in this case, a BGP packet), the slave port using Flow Director seems to be prioritized.
-
-This example also includes a commented-out call to set up an ntuple filter. Bonded ports do not support ntuple filter, and unlike Flow Director, you cannot apply ntuple filter to a slave port either.
+This example also shows how you can enable a Flow Director rule or ntuple filter rule on the bonded port.
 
 Finally, this example enables VLAN stripping to show that bonded ports support VLAN stripping.
 
@@ -24,15 +22,13 @@ The application can be run with:
 
     $ sudo ./build/bonding -c 0x400 -b 85:00.0 -b 85:00.1 --socket-mem 256 --file-prefix bonding
 
-Note: the application should be run with lcore 10 to work properly.
-
 ## Packet Generation
 
 ### Generally Testing Bonded Ports
 
 You can use the `pktgen` application to generate packets. In a third terminal, issue this command:
 
-    $ sudo ./pktgen -c 0xe000 --socket-mem 256 --file-prefix pg -b 83:00.0 -b 83:00.1 -b 85:00.0 -- -T -P -m "[14:15].0"
+    $ sudo ./pktgen -c 0xe000 --socket-mem 256 --file-prefix pg -b 83:00.0 -b 85:00.0 -b 83:00.1 -- -T -P -m "[14:15].0"
 
 And when `pktgen` starts, change the packets in this way:
 
@@ -54,12 +50,14 @@ You can change the destination IP address using the following command:
 
 By changing the destination IP address (perhaps a few times), you should be able to see the packets being directed to a different queue by RSS.
 
-### Testing Flow Director
+### Testing Flow Director and ntuple Filter
 
-To test the Flow Director, you can change the packets to be BGP packets (with the following destination IP address and destination port):
+To test the filters, you can change the packets to be BGP packets (with the following destination IP address and destination port):
 
     Pktgen> set ip dst 0 192.168.57.12
     Pktgen> set 0 dport 179
+
+BGP is just used as an example in this application for packets to filter.
 
 ### Testing VLAN Stripping
 
