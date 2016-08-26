@@ -2212,6 +2212,23 @@ bond_ethdev_rss_hash_conf_get(struct rte_eth_dev *dev,
 	return 0;
 }
 
+static int
+bond_ethdev_filter_ctrl(struct rte_eth_dev *dev,
+		enum rte_filter_type filter_type, enum rte_filter_op filter_op,
+		void *arg)
+{
+	struct bond_dev_private *internals = dev->data->dev_private;
+	int result = 0;
+	int i;
+	for (i = 0; i < internals->slave_count; i++) {
+		result = rte_eth_dev_filter_ctrl(internals->slaves[i].port_id,
+			filter_type, filter_op, arg);
+		if (result != 0)
+			return result;
+	}
+	return result;
+}
+
 const struct eth_dev_ops default_dev_ops = {
 	.dev_start            = bond_ethdev_start,
 	.dev_stop             = bond_ethdev_stop,
@@ -2231,7 +2248,8 @@ const struct eth_dev_ops default_dev_ops = {
 	.reta_update          = bond_ethdev_rss_reta_update,
 	.reta_query           = bond_ethdev_rss_reta_query,
 	.rss_hash_update      = bond_ethdev_rss_hash_update,
-	.rss_hash_conf_get    = bond_ethdev_rss_hash_conf_get
+	.rss_hash_conf_get    = bond_ethdev_rss_hash_conf_get,
+	.filter_ctrl          = bond_ethdev_filter_ctrl
 };
 
 static int
