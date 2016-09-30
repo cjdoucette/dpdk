@@ -394,6 +394,34 @@ rte_eth_dev_get_port_by_name(const char *name, uint8_t *port_id)
 	return -ENODEV;
 }
 
+int
+rte_eth_dev_get_port_by_addr(const struct rte_pci_addr *addr, uint8_t *port_id)
+{
+	int i;
+	struct rte_pci_device *pci_dev = NULL;
+
+	if (addr == NULL) {
+		RTE_PMD_DEBUG_TRACE("Null pointer is specified\n");
+		return -EINVAL;
+	}
+
+	*port_id = RTE_MAX_ETHPORTS;
+
+	for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
+
+		pci_dev = rte_eth_devices[i].pci_dev;
+
+		if (pci_dev &&
+			!rte_eal_compare_pci_addr(&pci_dev->addr, addr)) {
+
+			*port_id = i;
+
+			return 0;
+		}
+	}
+	return -ENODEV;
+}
+
 static int
 rte_eth_dev_is_detachable(uint8_t port_id)
 {

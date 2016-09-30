@@ -4351,6 +4351,20 @@ int
 rte_eth_dev_get_port_by_name(const char *name, uint8_t *port_id);
 
 /**
+* Get the port id from pci address struct
+*
+* @param addr
+*  pointer to pci address struct
+* @param port_id
+*   pointer to port identifier of the device
+* @return
+*   - (0) if successful.
+*   - (-ENODEV or -EINVAL) on failure.
+*/
+int
+rte_eth_dev_get_port_by_addr(const struct rte_pci_addr *addr, uint8_t *port_id);
+
+/**
 * Get the device name from port id
 *
 * @param port_id
