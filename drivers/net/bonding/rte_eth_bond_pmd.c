@@ -2229,6 +2229,24 @@ bond_ethdev_filter_ctrl(struct rte_eth_dev *dev,
 	return result;
 }
 
+static int
+bond_ethdev_set_mc_addr_list(struct rte_eth_dev *dev,
+			  struct ether_addr *mc_addr_set,
+			  uint32_t nb_mc_addr)
+{
+	struct bond_dev_private *internals = dev->data->dev_private;
+	int result = 0;
+	int i;
+	for (i = 0; i < internals->slave_count; i++) {
+		result = rte_eth_dev_set_mc_addr_list(
+			internals->slaves[i].port_id,
+			mc_addr_set, nb_mc_addr);
+		if (result != 0)
+			return result;
+	}
+	return result;
+}
+
 const struct eth_dev_ops default_dev_ops = {
 	.dev_start            = bond_ethdev_start,
 	.dev_stop             = bond_ethdev_stop,
@@ -2249,7 +2267,8 @@ const struct eth_dev_ops default_dev_ops = {
 	.reta_query           = bond_ethdev_rss_reta_query,
 	.rss_hash_update      = bond_ethdev_rss_hash_update,
 	.rss_hash_conf_get    = bond_ethdev_rss_hash_conf_get,
-	.filter_ctrl          = bond_ethdev_filter_ctrl
+	.filter_ctrl          = bond_ethdev_filter_ctrl,
+	.set_mc_addr_list     = bond_ethdev_set_mc_addr_list,
 };
 
 static int
