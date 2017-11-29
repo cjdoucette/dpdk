@@ -215,6 +215,8 @@ static int ena_populate_rx_queue(struct ena_ring *rxq, unsigned int count);
 static void ena_init_rings(struct ena_adapter *adapter);
 static int ena_mtu_set(struct rte_eth_dev *dev, uint16_t mtu);
 static int ena_start(struct rte_eth_dev *dev);
+static int ena_dev_set_link_up(struct rte_eth_dev *dev);
+static int ena_dev_set_link_down(struct rte_eth_dev *dev);
 static void ena_close(struct rte_eth_dev *dev);
 static int ena_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats);
 static void ena_rx_queue_release_all(struct rte_eth_dev *dev);
@@ -245,6 +247,8 @@ static const struct eth_dev_ops ena_dev_ops = {
 	.rx_queue_setup       = ena_rx_queue_setup,
 	.tx_queue_setup       = ena_tx_queue_setup,
 	.dev_start            = ena_start,
+	.dev_set_link_up      = ena_dev_set_link_up,
+	.dev_set_link_down    = ena_dev_set_link_down,
 	.link_update          = ena_link_update,
 	.stats_get            = ena_stats_get,
 	.mtu_set              = ena_mtu_set,
@@ -934,6 +938,22 @@ static int ena_start(struct rte_eth_dev *dev)
 
 	adapter->state = ENA_ADAPTER_STATE_RUNNING;
 
+	return 0;
+}
+
+static int
+ena_dev_set_link_up(struct rte_eth_dev *dev)
+{
+	struct rte_eth_link *link = &dev->data->dev_link;
+	link->link_status = 1;
+	return 0;
+}
+
+static int
+ena_dev_set_link_down(struct rte_eth_dev *dev)
+{
+	struct rte_eth_link *link = &dev->data->dev_link;
+	link->link_status = 0;
 	return 0;
 }
 
