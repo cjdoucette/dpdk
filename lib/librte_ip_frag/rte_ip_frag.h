@@ -181,6 +181,23 @@ struct rte_ip_frag_tbl * rte_ip_frag_table_create(uint32_t bucket_num,
 		uint64_t max_cycles, int socket_id);
 
 /**
+ * Iterate over the IP fragmentation table.
+ *
+ * @param tbl
+ *   Fragmentation table to iterate.
+ * @param dr
+ *   Death row to free buffers to
+ * @param next
+ *   Pointer to iterator.
+ *   Should be 0 to start iterating the fragmentation table.
+ *   Iterator is incremented after each call of this function.
+ * @return
+ *   0 if successful. -EINVAL if the parameters are invalid.
+ */
+int rte_ip_frag_table_iterate(struct rte_ip_frag_tbl *tbl,
+	struct rte_ip_frag_death_row *dr, uint32_t *next);
+
+/**
  * Free allocated IP fragmentation table.
  *
  * @param tbl
