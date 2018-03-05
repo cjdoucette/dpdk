@@ -7,6 +7,7 @@
 
 #include <rte_memory.h>
 #include <rte_log.h>
+#include <rte_cycles.h>
 
 #include "ip_frag_common.h"
 
@@ -91,6 +92,31 @@ rte_ip_frag_table_destroy(struct rte_ip_frag_tbl *tbl)
 	}
 
 	rte_free(tbl);
+}
+
+/* Iterate over the IP fragmentation table. */
+int
+rte_ip_frag_table_iterate(struct rte_ip_frag_tbl *tbl,
+	struct rte_ip_frag_death_row *dr, uint32_t *next)
+{
+	uint32_t i = 0;
+	uint64_t cur_tsc = rte_rdtsc();
+	struct ip_frag_pkt *pkt;
+
+	if (tbl == NULL || dr == NULL || next == NULL ||
+			(*next * tbl->bucket_entries >= tbl->nb_entries))
+		return -EINVAL;
+
+	pkt = tbl->pkt + *next * tbl->bucket_entries;
+	for (i = 0; i < tbl->bucket_entries; i++) {
+		if (tbl->max_cycles + pkt[i].start < cur_tsc)
+			ip_frag_tbl_del(tbl, dr, pkt + i);
+	}
+
+	*next = (*next + 1) * tbl->bucket_entries == tbl->nb_entries ?
+		0 : *next + 1;
+
+	return 0;
 }
 
 /* dump frag table statistics to file */
