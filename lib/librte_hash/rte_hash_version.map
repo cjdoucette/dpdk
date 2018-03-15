@@ -45,3 +45,9 @@ DPDK_16.07 {
 	rte_hash_get_key_with_position;
 
 } DPDK_2.2;
+
+EXPERIMENTAL {
+	global:
+
+	rte_hash_iterate_conflict_entries_with_hash;
+};

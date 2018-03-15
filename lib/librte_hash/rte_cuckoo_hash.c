@@ -1160,3 +1160,40 @@ rte_hash_iterate(const struct rte_hash *h, const void **key, void **data, uint32
 
 	return position - 1;
 }
+
+int32_t __rte_experimental
+rte_hash_iterate_conflict_entries_with_hash(const struct rte_hash *h,
+	const void **key, const void **data, hash_sig_t sig, uint32_t *next)
+{
+	RETURN_IF_TRUE(((h == NULL) || (next == NULL)), -EINVAL);
+
+	while (*next < RTE_HASH_BUCKET_ENTRIES * 2) {
+		uint32_t bidx = (*next < RTE_HASH_BUCKET_ENTRIES) ?
+			(sig & h->bucket_bitmask) :
+			(rte_hash_secondary_hash(sig) & h->bucket_bitmask);
+		uint32_t kidx = *next & (RTE_HASH_BUCKET_ENTRIES - 1);
+		uint32_t position = h->buckets[bidx].key_idx[kidx];
+		struct rte_hash_key *next_key;
+
+		/* Increment iterator. */
+		(*next)++;
+
+		/*
+		 * The test below is unlikely because this iterator is meant
+		 * to be used after a failed insert.
+		 * */
+		if (unlikely(position == EMPTY_SLOT))
+			continue;
+
+		/* Get the entry in key table. */
+		next_key = (struct rte_hash_key *) ((char *)h->key_store +
+			position * h->key_entry_size);
+		/* Return key and data. */
+		*key = next_key->key;
+		*data = next_key->pdata;
+
+		return position - 1;
+	}
+
+	return -ENOENT;
+}
