@@ -1301,7 +1301,10 @@ rte_hash_lookup_bulk_data(const struct rte_hash *h, const void **keys,
 }
 
 int32_t
-rte_hash_iterate(const struct rte_hash *h, const void **key, void **data, uint32_t *next)
+rte_hash_iterate_v1808(const struct rte_hash *h,
+	const void **key,
+	void **data,
+	uint32_t *next)
 {
 	uint32_t bucket_idx, idx, position;
 	struct rte_hash_key *next_key;
@@ -1343,4 +1346,133 @@ rte_hash_iterate(const struct rte_hash *h, const void **key, void **data, uint32
 	(*next)++;
 
 	return position - 1;
+}
+VERSION_SYMBOL(rte_hash_iterate, _v1808, 18.08);
+
+int32_t
+rte_hash_iterate_v1811(const struct rte_hash *h,
+	const void **key,
+	void **data,
+	struct rte_hash_iterator_state *state)
+{
+	struct rte_hash_iterator_priv *it;
+	uint32_t bucket_idx, idx, position;
+	struct rte_hash_key *next_key;
+
+	RETURN_IF_TRUE(((h == NULL) || (key == NULL) ||
+		(data == NULL) || (state == NULL)), -EINVAL);
+
+	RTE_BUILD_BUG_ON(sizeof(struct rte_hash_iterator_priv) >
+		sizeof(struct rte_hash_iterator_state));
+
+	it = (struct rte_hash_iterator_priv *)state;
+	if (it->next == 0)
+		it->total_entries = h->num_buckets * RTE_HASH_BUCKET_ENTRIES;
+
+	/* Out of bounds */
+	if (it->next >= it->total_entries)
+		return -ENOENT;
+
+	/* Calculate bucket and index of current iterator */
+	bucket_idx = it->next / RTE_HASH_BUCKET_ENTRIES;
+	idx = it->next % RTE_HASH_BUCKET_ENTRIES;
+
+	__hash_rw_reader_lock(h);
+	/* If current position is empty, go to the next one */
+	while (h->buckets[bucket_idx].key_idx[idx] == EMPTY_SLOT) {
+		it->next++;
+		/* End of table */
+		if (it->next == it->total_entries) {
+			__hash_rw_reader_unlock(h);
+			return -ENOENT;
+		}
+		bucket_idx = it->next / RTE_HASH_BUCKET_ENTRIES;
+		idx = it->next % RTE_HASH_BUCKET_ENTRIES;
+	}
+	/* Get position of entry in key table */
+	position = h->buckets[bucket_idx].key_idx[idx];
+	next_key = (struct rte_hash_key *) ((char *)h->key_store +
+				position * h->key_entry_size);
+	/* Return key and data */
+	*key = next_key->key;
+	*data = next_key->pdata;
+
+	__hash_rw_reader_unlock(h);
+
+	/* Increment iterator */
+	it->next++;
+
+	return position - 1;
+}
+MAP_STATIC_SYMBOL(int32_t rte_hash_iterate(const struct rte_hash *h,
+	const void **key, void **data, struct rte_hash_iterator_state *state),
+	rte_hash_iterate_v1811);
+
+int32_t __rte_experimental
+rte_hash_iterate_conflict_entries_with_hash(struct rte_hash *h,
+	const void **key,
+	void **data,
+	hash_sig_t sig,
+	struct rte_hash_iterator_state *state)
+{
+	struct rte_hash_iterator_conflict_entries_priv *it;
+
+	RETURN_IF_TRUE(((h == NULL) || (key == NULL) ||
+		(data == NULL) || (state == NULL)), -EINVAL);
+
+	RTE_BUILD_BUG_ON(sizeof(
+		struct rte_hash_iterator_conflict_entries_priv) >
+		sizeof(struct rte_hash_iterator_state));
+
+	it = (struct rte_hash_iterator_conflict_entries_priv *)state;
+	if (it->vnext == 0) {
+		/*
+		 * Get the primary bucket index given
+		 * the precomputed hash value.
+		 */
+		it->primary_bidx = sig & h->bucket_bitmask;
+		/*
+		 * Get the secondary bucket index given
+		 * the precomputed hash value.
+		 */
+		it->secondary_bidx =
+			rte_hash_secondary_hash(sig) & h->bucket_bitmask;
+	}
+
+	while (it->vnext < RTE_HASH_BUCKET_ENTRIES * 2) {
+		uint32_t bidx = it->vnext < RTE_HASH_BUCKET_ENTRIES ?
+			it->primary_bidx : it->secondary_bidx;
+		uint32_t next = it->vnext & (RTE_HASH_BUCKET_ENTRIES - 1);
+		uint32_t position;
+		struct rte_hash_key *next_key;
+
+		RTE_BUILD_BUG_ON(!RTE_IS_POWER_OF_2(RTE_HASH_BUCKET_ENTRIES));
+		__hash_rw_reader_lock(h);
+		position = h->buckets[bidx].key_idx[next];
+
+		/* Increment iterator. */
+		it->vnext++;
+
+		/*
+		 * The test below is unlikely because this iterator is meant
+		 * to be used after a failed insert.
+		 */
+		if (unlikely(position == EMPTY_SLOT)) {
+			__hash_rw_reader_unlock(h);
+			continue;
+		}
+
+		/* Get the entry in key table. */
+		next_key = (struct rte_hash_key *) ((char *)h->key_store +
+				position * h->key_entry_size);
+		/* Return key and data. */
+		*key = next_key->key;
+		*data = next_key->pdata;
+
+		__hash_rw_reader_unlock(h);
+
+		return position - 1;
+	}
+
+	return -ENOENT;
 }

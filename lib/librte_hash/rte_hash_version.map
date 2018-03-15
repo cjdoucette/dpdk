@@ -53,3 +53,17 @@ DPDK_18.08 {
 	rte_hash_count;
 
 } DPDK_16.07;
+
+DPDK_18.11 {
+	global:
+
+	rte_hash_iterate;
+
+} DPDK_18.08;
+
+EXPERIMENTAL {
+	global:
+
+	rte_hash_iterate_conflict_entries_with_hash;
+
+};

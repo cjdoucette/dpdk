@@ -195,4 +195,15 @@ struct queue_node {
 	int prev_slot;               /* Parent(slot) in search path */
 };
 
+struct rte_hash_iterator_priv {
+	uint32_t next;
+	uint32_t total_entries;
+};
+
+struct rte_hash_iterator_conflict_entries_priv {
+	uint32_t   vnext;
+	uint32_t   primary_bidx;
+	uint32_t   secondary_bidx;
+};
+
 #endif
