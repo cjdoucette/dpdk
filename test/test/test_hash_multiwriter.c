@@ -4,6 +4,7 @@
 
 #include <inttypes.h>
 #include <locale.h>
+#include <string.h>
 
 #include <rte_cycles.h>
 #include <rte_hash.h>
@@ -126,11 +127,14 @@ test_hash_multiwriter(void)
 
 	const void *next_key;
 	void *next_data;
-	uint32_t iter = 0;
 
 	uint32_t duplicated_keys = 0;
 	uint32_t lost_keys = 0;
 	uint32_t count;
+
+	struct rte_hash_iterator_state state;
+
+	memset(&state, 0, sizeof(state));
 
 	snprintf(name, 32, "test%u", calledCount++);
 	hash_params.name = name;
@@ -204,7 +208,7 @@ test_hash_multiwriter(void)
 		goto err3;
 	}
 
-	while (rte_hash_iterate(handle, &next_key, &next_data, &iter) >= 0) {
+	while (rte_hash_iterate(handle, &next_key, &next_data, &state) >= 0) {
 		/* Search for the key in the list of keys added .*/
 		i = *(const uint32_t *)next_key;
 		tbl_multiwriter_test_params.found[i]++;

@@ -111,19 +111,22 @@ check_bucket(uint32_t bkt_idx, uint32_t key)
 	uint32_t count = 0;
 	const void *next_key;
 	void *next_data;
+	struct rte_hash_iterator_state state;
 
 	/* Temporary bucket to hold the keys */
 	uint32_t keys_in_bkt[8];
 
 	iter = bkt_idx * 8;
 	prev_iter = iter;
+	rte_hash_iterator_set_iter(tbl_rwc_test_param.h, iter, &state);
 	while (rte_hash_iterate(tbl_rwc_test_param.h,
-			&next_key, &next_data, &iter) >= 0) {
+			&next_key, &next_data, &state) >= 0) {
 
 		/* Check for duplicate entries */
 		if (*(const uint32_t *)next_key == key)
 			return 1;
 
+		iter = rte_hash_iterator_get_iter(&state);
 		/* Identify if there is any free entry in the bucket */
 		diff = iter - prev_iter;
 		if (diff > 1)
@@ -346,13 +349,17 @@ generate_keys(void)
 	const void *next_key;
 	void *next_data;
 	uint32_t count = 0;
+	struct rte_hash_iterator_state state;
 	for (i = 0; i < num_buckets; i++) {
 		/* Check bucket for no keys shifted to alternate locations */
 		if (scanned_bkts[i] == 0) {
 			iter = i * 8;
+			rte_hash_iterator_set_iter(
+				tbl_rwc_test_param.h, iter, &state);
 			while (rte_hash_iterate(tbl_rwc_test_param.h,
-				&next_key, &next_data, &iter) >= 0) {
+				&next_key, &next_data, &state) >= 0) {
 
+				iter = rte_hash_iterator_get_iter(&state);
 				/* Check if key belongs to the current bucket */
 				if (i >= (iter-1)/8)
 					keys_non_shift_path[count++]

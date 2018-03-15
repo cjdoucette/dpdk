@@ -1433,8 +1433,8 @@ static int test_hash_iteration(uint32_t ext_table)
 	void *next_data;
 	void *data[NUM_ENTRIES];
 	unsigned added_keys;
-	uint32_t iter = 0;
 	int ret = 0;
+	struct rte_hash_iterator_state state;
 
 	ut_params.entries = NUM_ENTRIES;
 	ut_params.name = "test_hash_iteration";
@@ -1463,8 +1463,10 @@ static int test_hash_iteration(uint32_t ext_table)
 		}
 	}
 
+	memset(&state, 0, sizeof(state));
+
 	/* Iterate through the hash table */
-	while (rte_hash_iterate(handle, &next_key, &next_data, &iter) >= 0) {
+	while (rte_hash_iterate(handle, &next_key, &next_data, &state) >= 0) {
 		/* Search for the key in the list of keys added */
 		for (i = 0; i < NUM_ENTRIES; i++) {
 			if (memcmp(next_key, keys[i], ut_params.key_len) == 0) {

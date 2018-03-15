@@ -56,6 +56,9 @@ extern "C" {
  */
 #define RTE_HASH_EXTRA_FLAGS_RW_CONCURRENCY_LF 0x20
 
+/** Size of the hash table iterator state structure */
+#define RTE_HASH_ITERATOR_STATE_SIZE 64
+
 /**
  * The type of hash value of a key.
  * It should be a value of at least 32bit with fully random pattern.
@@ -85,6 +88,16 @@ struct rte_hash_parameters {
 
 /** @internal A hash table structure. */
 struct rte_hash;
+
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice.
+ *
+ * @internal A hash table iterator state structure.
+ */
+struct rte_hash_iterator_state {
+	uint8_t space[RTE_HASH_ITERATOR_STATE_SIZE];
+} __rte_cache_aligned;
 
 /**
  * Create a new hash table.
@@ -524,6 +537,9 @@ rte_hash_lookup_bulk(const struct rte_hash *h, const void **keys,
 		      uint32_t num_keys, int32_t *positions);
 
 /**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice.
+ *
  * Iterate through the hash table, returning key-value pairs.
  *
  * @param h
@@ -534,16 +550,96 @@ rte_hash_lookup_bulk(const struct rte_hash *h, const void **keys,
  * @param data
  *   Output containing the data associated with key.
  *   Returns NULL if data was not stored.
- * @param next
- *   Pointer to iterator. Should be 0 to start iterating the hash table.
- *   Iterator is incremented after each call of this function.
+ * @param state
+ *   Pointer to the iterator state.
  * @return
  *   Position where key was stored, if successful.
  *   - -EINVAL if the parameters are invalid.
  *   - -ENOENT if end of the hash table.
  */
 int32_t
-rte_hash_iterate(const struct rte_hash *h, const void **key, void **data, uint32_t *next);
+rte_hash_iterate(const struct rte_hash *h,
+	const void **key,
+	void **data,
+	struct rte_hash_iterator_state *state);
+
+int32_t
+rte_hash_iterate_v1808(const struct rte_hash *h,
+	const void **key,
+	void **data,
+	uint32_t *next);
+
+int32_t
+rte_hash_iterate_v1811(const struct rte_hash *h,
+	const void **key,
+	void **data,
+	struct rte_hash_iterator_state *state);
+BIND_DEFAULT_SYMBOL(rte_hash_iterate, _v1811, 18.11);
+
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice.
+ *
+ * Get the current iterator position.
+ *
+ * @param state
+ *   Pointer to the iterator state.
+ * @return
+ *   The current iterator position, if successful.
+ *   - -EINVAL if the parameters are invalid.
+ */
+uint32_t __rte_experimental
+rte_hash_iterator_get_iter(const struct rte_hash_iterator_state *state);
+
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice.
+ *
+ * Set the current iterator position.
+ *
+ * @param h
+ *   Hash table that the iterator relates.
+ * @param next
+ *   The iterator position to be set.
+ * @param state
+ *   Pointer to the iterator state.
+ * @return
+ *   - -EINVAL if the parameters are invalid, otherwise 0.
+ */
+uint32_t __rte_experimental
+rte_hash_iterator_set_iter(const struct rte_hash *h,
+	uint32_t next,
+	struct rte_hash_iterator_state *state);
+
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice.
+ *
+ * Iterate over entries that conflict with a given hash.
+ *
+ * @param h
+ *   Hash table to iterate.
+ * @param key
+ *   Output containing the key at where the iterator is currently pointing.
+ * @param data
+ *   Output containing the data associated with key.
+ *   Returns NULL if data was not stored.
+ * @param sig
+ *   Precomputed hash value for the conflict entry.
+ * @param state
+ *   Pointer to the iterator state.
+ * @return
+ *   Position where key was stored, if successful.
+ *   - -EINVAL if the parameters are invalid.
+ *   - -ENOENT if there is no more conflicting entries.
+ */
+int32_t __rte_experimental
+rte_hash_iterate_conflict_entries_with_hash(struct rte_hash *h,
+	const void **key,
+	void **data,
+	hash_sig_t sig,
+	struct rte_hash_iterator_state *state);
+
 #ifdef __cplusplus
 }
 #endif
