@@ -95,6 +95,17 @@ rte_hash_create(const struct rte_hash_parameters *params);
 void rte_hash_set_cmp_func(struct rte_hash *h, rte_hash_cmp_eq_t func);
 
 /**
+ * Get the number of buckets in the hash table.
+ * @param h
+ *   Hash table for which the function queries.
+ * @return
+ *   The number of buckets in the hash table h.
+ *    - EINVAL - invalid parameter passed to function
+ */
+int
+rte_hash_get_num_buckets(struct rte_hash *h);
+
+/**
  * Find an existing hash table object and return a pointer to it.
  *
  * @param name
@@ -262,6 +273,34 @@ rte_hash_get_key_with_position(const struct rte_hash *h, const int32_t position,
 			       void **key);
 
 /**
+ * Get the primary bucket index given the precomputed hash value.
+ * This operation is multi-thread safe.
+ *
+ * @param h
+ *   Hash table to get the key from.
+ * @param sig
+ *   Precomputed hash value.
+ * @return
+ *   The primary bucket index.
+ */
+uint32_t
+rte_hash_get_primary_bucket(const struct rte_hash *h, hash_sig_t sig);
+
+/**
+ * Get the secondary bucket index given the precomputed hash value.
+ * This operation is multi-thread safe.
+ *
+ * @param h
+ *   Hash table to get the key from.
+ * @param sig
+ *   Precomputed hash value.
+ * @return
+ *   The primary bucket index.
+ */
+uint32_t
+rte_hash_get_secondary_bucket(const struct rte_hash *h, hash_sig_t sig);
+
+/**
  * Find a key-value pair in the hash table.
  * This operation is multi-thread safe.
  *
@@ -419,6 +458,33 @@ rte_hash_lookup_bulk(const struct rte_hash *h, const void **keys,
  */
 int32_t
 rte_hash_iterate(const struct rte_hash *h, const void **key, void **data, uint32_t *next);
+
+/**
+ * Iterate through the buckets in hash table, returning key-value pairs.
+ *
+ * @param h
+ *   Hash table to iterate
+ * @param key
+ *   Output containing the key where current iterator
+ *   was pointing at
+ * @param data
+ *   Output containing the data associated with key.
+ *   Returns NULL if data was not stored.
+ * @param bidx
+ *   Pointer to the current bucket index. Should be 0 to start
+ *   iterating the hash table. Iterator is incremented after
+ *   RTE_HASH_BUCKET_ENTRIES calls of this function.
+ * @param next
+ *   Pointer to iterator. Should be 0 to start iterating the bucket.
+ *   Iterator is incremented after each call of this function.
+ * @return
+ *   Position where key was stored, if successful.
+ *   - -EINVAL if the parameters are invalid.
+ *   - -ENOENT if end of the bucket.
+ */
+int32_t
+rte_hash_bucket_iterate(const struct rte_hash *h,
+	const void **key, void **data, uint32_t *bidx, uint32_t *next);
 #ifdef __cplusplus
 }
 #endif
