@@ -1175,3 +1175,64 @@ rte_hash_iterate(const struct rte_hash *h, const void **key, void **data, uint32
 
 	return position - 1;
 }
+
+int
+rte_hash_get_num_buckets(struct rte_hash *h)
+{
+	RETURN_IF_TRUE((h == NULL), -EINVAL);
+	return h->num_buckets;
+}
+
+uint32_t
+rte_hash_get_primary_bucket(const struct rte_hash *h, hash_sig_t sig)
+{
+	return sig & h->bucket_bitmask;
+}
+
+uint32_t
+rte_hash_get_secondary_bucket(const struct rte_hash *h, hash_sig_t sig)
+{
+	return rte_hash_secondary_hash(sig) & h->bucket_bitmask;
+}
+
+int32_t
+rte_hash_bucket_iterate(const struct rte_hash *h,
+	const void **key, void **data, uint32_t *bidx, uint32_t *next)
+{
+	uint32_t position;
+	struct rte_hash_key *next_key;
+
+	RETURN_IF_TRUE(((h == NULL) || (bidx == NULL) ||
+		(next == NULL)), -EINVAL);
+
+	/* Out of bounds. */
+	if (*bidx >= h->num_buckets || *next >= RTE_HASH_BUCKET_ENTRIES) {
+		*bidx = (*bidx + 1) >= h->num_buckets ? 0 : *bidx + 1;
+		*next = 0;
+		return -ENOENT;
+	}
+
+	/* If current position is empty, go to the next one. */
+	while (h->buckets[*bidx].key_idx[*next] == EMPTY_SLOT) {
+		(*next)++;
+		/* End of bucket. */
+		if (*next == RTE_HASH_BUCKET_ENTRIES) {
+			*bidx = (*bidx + 1) == h->num_buckets ? 0 : *bidx + 1;
+			*next = 0;
+			return -ENOENT;
+		}
+	}
+
+	/* Get position of entry in key table. */
+	position = h->buckets[*bidx].key_idx[*next];
+	next_key = (struct rte_hash_key *) ((char *)h->key_store +
+				position * h->key_entry_size);
+	/* Return key and data. */
+	*key = next_key->key;
+	*data = next_key->pdata;
+
+	/* Increment iterator. */
+	(*next)++;
+
+	return position - 1;
+}
