@@ -216,6 +216,61 @@ struct rte_lpm {
 	struct rte_lpm_rule *rules_tbl; /**< LPM rules. */
 };
 
+/** LPM iterator state structure. */
+struct rte_lpm_iterator_state {
+	uint32_t dmask;
+	uint32_t ip_masked;
+	uint8_t  depth;
+	uint32_t next;
+	const struct rte_lpm *lpm;
+};
+
+/**
+ * Initialize the lpm iterator state.
+ *
+ * @param lpm
+ *   LPM object handle
+ * @param ip
+ *   IP of the rule to be searched
+ * @param depth
+ *   Initial depth of the rule to be searched.
+ *   Pass zero to enumerate the whole LPM table.
+ * @param state
+ *   Pointer to the iterator state
+ * @return
+ *   0 on successfully initialize the state variable, negative otherwise.
+ *   Possible error values include:
+ *   - EINVAL - invalid parameter passed to function
+ */
+int
+rte_lpm_iterator_state_init(const struct rte_lpm *lpm, uint32_t ip,
+	uint8_t depth, struct rte_lpm_iterator_state *state);
+
+/**
+ * An iterator over its rule entries.
+ * The iterator should require a prefix as a parameter
+ * and should list all entries as long as the given prefix (or longer).
+ *
+ * @param state
+ *   Pointer to the LPM rule iterator state
+ * @param rule
+ *   Pointer to the next rule entry
+ * @return
+ *   0 on successfully searching the next rule entry, negative otherwise.
+ *   Possible error values include:
+ *   - EINVAL - invalid parameter passed to function
+ *   - ENOENT - no rule entries found
+ */
+int
+rte_lpm_rule_iterate(struct rte_lpm_iterator_state *state,
+	const struct rte_lpm_rule **rule);
+int
+rte_lpm_rule_iterate_v20(struct rte_lpm_iterator_state *state,
+	const struct rte_lpm_rule **rule);
+int
+rte_lpm_rule_iterate_v1604(struct rte_lpm_iterator_state *state,
+	const struct rte_lpm_rule **rule);
+
 /**
  * Create an LPM object.
  *

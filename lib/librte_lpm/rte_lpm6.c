@@ -94,13 +94,6 @@ struct rte_lpm6_tbl_entry {
 	uint32_t ext_entry :1;   /**< External entry. */
 };
 
-/** Rules tbl entry structure. */
-struct rte_lpm6_rule {
-	uint8_t ip[RTE_LPM6_IPV6_ADDR_SIZE]; /**< Rule IP address. */
-	uint8_t next_hop; /**< Rule next hop. */
-	uint8_t depth; /**< Rule depth. */
-};
-
 /** LPM6 structure. */
 struct rte_lpm6 {
 	/* LPM metadata. */
@@ -140,6 +133,80 @@ mask_ip(uint8_t *ip, uint8_t depth)
 			}
 			part_depth -= BYTE_SIZE;
 		}
+}
+
+int
+rte_lpm6_iterator_state_init(const struct rte_lpm6 *lpm, uint8_t *ip,
+	uint8_t depth, struct rte_lpm6_iterator_state *state)
+{
+	if (lpm == NULL || depth > RTE_LPM6_MAX_DEPTH || state == NULL)
+		return -EINVAL;
+
+	if (ip == NULL)
+		memset(state->ip_masked, 0, sizeof(state->ip_masked));
+	else {
+		rte_memcpy(state->ip_masked, ip, sizeof(state->ip_masked));
+		mask_ip(state->ip_masked, state->depth);
+	}
+
+	state->depth = depth;
+	state->next = 0;
+	state->lpm = lpm;
+
+	return 0;
+}
+
+/*
+ * An iterator over its rule entries.
+ */
+int
+rte_lpm6_rule_iterate(struct rte_lpm6_iterator_state *state,
+	const struct rte_lpm6_rule **rule)
+{
+	uint32_t index;
+
+	/* Check user arguments. */
+	if (state == NULL || rule == NULL) {
+		if (rule != NULL)
+			*rule = NULL;
+
+		return -EINVAL;
+	}
+
+	if (state->next >= state->lpm->used_rules) {
+		*rule = NULL;
+		return -ENOENT;
+	}
+
+	index = state->next;
+
+	/* Scan used rules to find rules. */
+	while (index < state->lpm->used_rules) {
+		uint8_t rule_ip_masked[RTE_LPM6_IPV6_ADDR_SIZE];
+
+		if (state->lpm->rules_tbl[index].depth < state->depth) {
+			index++;
+			continue;
+		}
+
+		rte_memcpy(rule_ip_masked, state->lpm->rules_tbl[index].ip,
+			RTE_LPM6_IPV6_ADDR_SIZE);
+		mask_ip(rule_ip_masked, state->depth);
+
+		/* If rule is found return the rule index. */
+		if ((memcmp(state->ip_masked, rule_ip_masked,
+				RTE_LPM6_IPV6_ADDR_SIZE) == 0)) {
+			state->next = index + 1;
+			*rule = (const struct rte_lpm6_rule *)
+				&state->lpm->rules_tbl[index];
+			return 0;
+		}
+
+		index++;
+	}
+
+	*rule = NULL;
+	return -ENOENT;
 }
 
 /*
