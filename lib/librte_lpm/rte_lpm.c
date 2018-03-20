@@ -85,6 +85,105 @@ depth_to_range(uint8_t depth)
 	return 1 << (RTE_LPM_MAX_DEPTH - depth);
 }
 
+int
+rte_lpm_iterator_state_init(const struct rte_lpm *lpm, uint32_t ip,
+	uint8_t depth, struct rte_lpm_iterator_state *state)
+{
+	if (lpm == NULL || depth > RTE_LPM_MAX_DEPTH || state == NULL)
+		return -EINVAL;
+
+	state->dmask = depth_to_mask(depth);
+	state->ip_masked = ip & state->dmask;
+	state->depth = depth == 0 ? 1 : depth;
+	state->next = 0;
+	state->lpm = lpm;
+
+	return 0;
+}
+
+/*
+ * An iterator over its rule entries.
+ */
+int
+rte_lpm_rule_iterate_v20(struct rte_lpm_iterator_state *state,
+	const struct rte_lpm_rule **rule)
+{
+	if (state == NULL || rule == NULL) {
+		if (rule != NULL)
+			*rule = NULL;
+
+		return -EINVAL;
+	}
+
+	while (state->depth <= RTE_LPM_MAX_DEPTH) {
+		uint32_t rule_gindex =
+			state->lpm->rule_info[state->depth - 1].first_rule;
+		uint32_t last_rule = rule_gindex +
+			state->lpm->rule_info[state->depth - 1].used_rules;
+		uint32_t rule_index = rule_gindex + state->next;
+
+		while (rule_index < last_rule) {
+			if ((state->lpm->rules_tbl[rule_index].ip &
+					state->dmask) == state->ip_masked) {
+				state->next = rule_index - rule_gindex + 1;
+				*rule = (const struct rte_lpm_rule *)
+					&state->lpm->rules_tbl[rule_index];
+				return 0;
+			}
+
+			rule_index++;
+		}
+
+		state->depth++;
+		state->next = 0;
+	}
+
+	*rule = NULL;
+	return -ENOENT;
+}
+VERSION_SYMBOL(rte_lpm_rule_iterate, _v20, 2.0);
+
+int
+rte_lpm_rule_iterate_v1604(struct rte_lpm_iterator_state *state,
+	const struct rte_lpm_rule **rule)
+{
+	if (state == NULL || rule == NULL) {
+		if (rule != NULL)
+			*rule = NULL;
+
+		return -EINVAL;
+	}
+
+	while (state->depth <= RTE_LPM_MAX_DEPTH) {
+		uint32_t rule_gindex =
+			state->lpm->rule_info[state->depth - 1].first_rule;
+		uint32_t last_rule = rule_gindex +
+			state->lpm->rule_info[state->depth - 1].used_rules;
+		uint32_t rule_index = rule_gindex + state->next;
+
+		while (rule_index < last_rule) {
+			if ((state->lpm->rules_tbl[rule_index].ip &
+					state->dmask) == state->ip_masked) {
+				state->next = rule_index - rule_gindex + 1;
+				*rule = (const struct rte_lpm_rule *)
+					&state->lpm->rules_tbl[rule_index];
+				return 0;
+			}
+
+			rule_index++;
+		}
+
+		state->depth++;
+		state->next = 0;
+	}
+
+	*rule = NULL;
+	return -ENOENT;
+}
+BIND_DEFAULT_SYMBOL(rte_lpm_rule_iterate, _v1604, 16.04);
+MAP_STATIC_SYMBOL(int rte_lpm_rule_iterate(struct rte_lpm_iterator_state *state,
+	const struct rte_lpm_rule **rule), rte_lpm_rule_iterate_v1604);
+
 /*
  * Find an existing lpm table and return a pointer to it.
  */
