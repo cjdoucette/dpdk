@@ -99,6 +99,12 @@ struct rte_ip_frag_tbl {
 	__extension__ struct ip_frag_pkt pkt[0]; /**< hash table. */
 };
 
+/** IPv6 extension header */
+struct ipv6_opt_hdr {
+	uint8_t nexthdr;
+	uint8_t hdrlen;
+} __attribute__((packed));
+
 /** IPv6 fragment extension header */
 #define	RTE_IPV6_EHDR_MF_SHIFT			0
 #define	RTE_IPV6_EHDR_MF_MASK			1
@@ -208,28 +214,34 @@ rte_ipv6_fragment_packet(struct rte_mbuf *pkt_in,
 struct rte_mbuf *rte_ipv6_frag_reassemble_packet(struct rte_ip_frag_tbl *tbl,
 		struct rte_ip_frag_death_row *dr,
 		struct rte_mbuf *mb, uint64_t tms, struct ipv6_hdr *ip_hdr,
-		struct ipv6_extension_fragment *frag_hdr);
+		const struct ipv6_extension_fragment *frag_hdr);
+
+static inline int
+ipv6_ext_hdr(uint8_t nexthdr)
+{
+	/* Find out if nexthdr is an extension header or a protocol. */
+	return (nexthdr == IPPROTO_HOPOPTS) ||
+		(nexthdr == IPPROTO_ROUTING) ||
+		(nexthdr == IPPROTO_FRAGMENT) ||
+		(nexthdr == IPPROTO_AH) ||
+		(nexthdr == IPPROTO_NONE) ||
+		(nexthdr == IPPROTO_DSTOPTS);
+}
 
 /**
  * Return a pointer to the packet's fragment header, if found.
- * It only looks at the extension header that's right after the fixed IPv6
- * header, and doesn't follow the whole chain of extension headers.
  *
- * @param hdr
+ * @param pkt
+ *   Pointer to the mbuf of the packet.
+ * @param ip_hdr
  *   Pointer to the IPv6 header.
  * @return
  *   Pointer to the IPv6 fragment extension header, or NULL if it's not
  *   present.
  */
-static inline struct ipv6_extension_fragment *
-rte_ipv6_frag_get_ipv6_fragment_header(struct ipv6_hdr *hdr)
-{
-	if (hdr->proto == IPPROTO_FRAGMENT) {
-		return (struct ipv6_extension_fragment *) ++hdr;
-	}
-	else
-		return NULL;
-}
+const struct ipv6_extension_fragment *rte_ipv6_frag_get_ipv6_fragment_header(
+		struct rte_mbuf *pkt, struct ipv6_hdr *ip_hdr,
+		struct ipv6_opt_hdr *opt);
 
 /**
  * IPv4 fragmentation.
