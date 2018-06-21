@@ -38,10 +38,13 @@ void cxgbe_close(struct adapter *adapter);
 void cxgbe_stats_get(struct port_info *pi, struct port_stats *stats);
 void cxgbevf_stats_get(struct port_info *pi, struct port_stats *stats);
 void cxgbe_stats_reset(struct port_info *pi);
+int cxgbe_poll_for_completion(struct sge_rspq *q, unsigned int us,
+			      unsigned int cnt, struct t4_completion *c);
 int link_start(struct port_info *pi);
 void init_rspq(struct adapter *adap, struct sge_rspq *q, unsigned int us,
 	       unsigned int cnt, unsigned int size, unsigned int iqe_size);
 int setup_sge_fwevtq(struct adapter *adapter);
+int setup_sge_ctrl_txq(struct adapter *adapter);
 void cfg_queues(struct rte_eth_dev *eth_dev);
 int cfg_queue_count(struct rte_eth_dev *eth_dev);
 int init_rss(struct adapter *adap);

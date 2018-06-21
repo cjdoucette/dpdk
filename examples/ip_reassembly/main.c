@@ -367,12 +367,14 @@ reassemble(struct rte_mbuf *m, uint16_t portid, uint32_t queue,
 		eth_hdr->ether_type = rte_be_to_cpu_16(ETHER_TYPE_IPv4);
 	} else if (RTE_ETH_IS_IPV6_HDR(m->packet_type)) {
 		/* if packet is IPv6 */
-		struct ipv6_extension_fragment *frag_hdr;
+		const struct ipv6_extension_fragment *frag_hdr;
+		struct ipv6_extension_fragment frag_hdr_buf;
 		struct ipv6_hdr *ip_hdr;
 
 		ip_hdr = (struct ipv6_hdr *)(eth_hdr + 1);
 
-		frag_hdr = rte_ipv6_frag_get_ipv6_fragment_header(ip_hdr);
+		frag_hdr = rte_ipv6_frag_get_ipv6_fragment_header(m,
+			ip_hdr, &frag_hdr_buf);
 
 		if (frag_hdr != NULL) {
 			struct rte_mbuf *mo;

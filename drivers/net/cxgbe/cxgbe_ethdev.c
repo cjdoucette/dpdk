@@ -36,6 +36,7 @@
 
 #include "cxgbe.h"
 #include "cxgbe_pfvf.h"
+#include "cxgbe_flow.h"
 
 /*
  * Macros needed to support the PCI Device ID Table ...
@@ -204,13 +205,14 @@ int cxgbe_dev_link_update(struct rte_eth_dev *eth_dev,
 	struct port_info *pi = (struct port_info *)(eth_dev->data->dev_private);
 	struct adapter *adapter = pi->adapter;
 	struct sge *s = &adapter->sge;
-	struct rte_eth_link new_link;
+	struct rte_eth_link new_link = { 0 };
 	unsigned int work_done, budget = 4;
 
 	cxgbe_poll(&s->fw_evtq, NULL, budget, &work_done);
 
 	new_link.link_status = force_linkup(adapter) ?
 			       ETH_LINK_UP : pi->link_cfg.link_ok;
+	new_link.link_autoneg = pi->link_cfg.autoneg;
 	new_link.link_duplex = ETH_LINK_FULL_DUPLEX;
 	new_link.link_speed = pi->link_cfg.speed;
 
@@ -363,6 +365,9 @@ int cxgbe_dev_configure(struct rte_eth_dev *eth_dev)
 		if (err)
 			return err;
 		adapter->flags |= FW_QUEUE_BOUND;
+		err = setup_sge_ctrl_txq(adapter);
+		if (err)
+			return err;
 	}
 
 	err = cfg_queue_count(eth_dev);
@@ -1035,6 +1040,7 @@ static const struct eth_dev_ops cxgbe_eth_dev_ops = {
 	.rx_queue_start		= cxgbe_dev_rx_queue_start,
 	.rx_queue_stop		= cxgbe_dev_rx_queue_stop,
 	.rx_queue_release	= cxgbe_dev_rx_queue_release,
+	.filter_ctrl            = cxgbe_dev_filter_ctrl,
 	.stats_get		= cxgbe_dev_stats_get,
 	.stats_reset		= cxgbe_dev_stats_reset,
 	.flow_ctrl_get		= cxgbe_flow_ctrl_get,

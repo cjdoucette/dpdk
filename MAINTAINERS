@@ -32,7 +32,8 @@ M: Ferruh Yigit <ferruh.yigit@intel.com>
 T: git://dpdk.org/next/dpdk-next-net
 
 Next-net-intel Tree
-M: Helin Zhang <helin.zhang@intel.com>
+M: Qi Zhang <qi.z.zhang@intel.com>
+M: Beilei Xing <beilei.xing@intel.com>
 T: git://dpdk.org/next/dpdk-next-net-intel
 
 Next-net-mlx Tree
@@ -41,6 +42,7 @@ T: git://dpdk.org/next/dpdk-next-net-mlx
 
 Next-virtio Tree
 M: Maxime Coquelin <maxime.coquelin@redhat.com>
+M: Tiwei Bie <tiwei.bie@intel.com>
 T: git://dpdk.org/next/dpdk-next-virtio
 
 Next-crypto Tree
@@ -563,8 +565,8 @@ Intel ifc
 M: Xiao Wang <xiao.w.wang@intel.com>
 T: git://dpdk.org/next/dpdk-next-net-intel
 F: drivers/net/ifc/
-F: doc/guides/nics/ifcvf.rst
-F: doc/guides/nics/features/ifcvf.ini
+F: doc/guides/nics/ifc.rst
+F: doc/guides/nics/features/ifc*.ini
 
 Marvell mvpp2
 M: Tomasz Duszynski <tdu@semihalf.com>
@@ -654,6 +656,8 @@ F: doc/guides/nics/features/vmxnet3.ini
 
 Vhost-user
 M: Maxime Coquelin <maxime.coquelin@redhat.com>
+M: Tiwei Bie <tiwei.bie@intel.com>
+M: Zhihong Wang <zhihong.wang@intel.com>
 T: git://dpdk.org/next/dpdk-next-virtio
 F: lib/librte_vhost/
 F: doc/guides/prog_guide/vhost_lib.rst
@@ -664,8 +668,9 @@ F: doc/guides/sample_app_ug/vhost_scsi.rst
 F: examples/vhost_crypto/
 
 Vhost PMD
-M: Tetsuya Mukawa <mtetsuyah@gmail.com>
 M: Maxime Coquelin <maxime.coquelin@redhat.com>
+M: Tiwei Bie <tiwei.bie@intel.com>
+M: Zhihong Wang <zhihong.wang@intel.com>
 T: git://dpdk.org/next/dpdk-next-virtio
 F: drivers/net/vhost/
 F: doc/guides/nics/vhost.rst
@@ -674,6 +679,7 @@ F: doc/guides/nics/features/vhost.ini
 Virtio PMD
 M: Maxime Coquelin <maxime.coquelin@redhat.com>
 M: Tiwei Bie <tiwei.bie@intel.com>
+M: Zhihong Wang <zhihong.wang@intel.com>
 T: git://dpdk.org/next/dpdk-next-virtio
 F: drivers/net/virtio/
 F: doc/guides/nics/virtio.rst
