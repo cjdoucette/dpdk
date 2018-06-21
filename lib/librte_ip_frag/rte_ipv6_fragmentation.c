@@ -176,3 +176,41 @@ rte_ipv6_fragment_packet(struct rte_mbuf *pkt_in,
 
 	return out_pkt_pos;
 }
+
+const struct ipv6_extension_fragment *
+rte_ipv6_frag_get_ipv6_fragment_header(struct rte_mbuf *pkt,
+	const struct ipv6_hdr *ip_hdr,
+	struct ipv6_extension_fragment *frag_hdr)
+{
+	size_t offset = sizeof(struct ipv6_hdr);
+	uint8_t nexthdr = ip_hdr->proto;
+
+	while (ipv6_ext_hdr(nexthdr)) {
+		struct ipv6_opt_hdr opt;
+		const struct ipv6_opt_hdr *popt = rte_pktmbuf_read(pkt,
+			offset, sizeof(opt), &opt);
+		if (popt == NULL)
+			return NULL;
+
+		switch (nexthdr) {
+		case IPPROTO_NONE:
+			return NULL;
+
+		case IPPROTO_FRAGMENT:
+			return rte_pktmbuf_read(pkt, offset,
+				sizeof(*frag_hdr), frag_hdr);
+
+		case IPPROTO_AH:
+			offset += (popt->hdrlen + 2) << 2;
+			break;
+
+		default:
+			offset += (popt->hdrlen + 1) << 3;
+			break;
+		}
+
+		nexthdr = popt->nexthdr;
+	}
+
+	return NULL;
+}
