@@ -1055,7 +1055,7 @@ F: test/test/test_efd*
 F: examples/server_node_efd/
 F: doc/guides/sample_app_ug/server_node_efd.rst
 
-Hashes
+Hashes - EXPERIMENTAL
 M: Bruce Richardson <bruce.richardson@intel.com>
 M: Pablo de Lara <pablo.de.lara.guarch@intel.com>
 F: lib/librte_hash/
