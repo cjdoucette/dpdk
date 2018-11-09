@@ -1783,7 +1783,10 @@ rte_hash_lookup_bulk_data(const struct rte_hash *h, const void **keys,
 }
 
 int32_t
-rte_hash_iterate(const struct rte_hash *h, const void **key, void **data, uint32_t *next)
+rte_hash_iterate_v1808(const struct rte_hash *h,
+	const void **key,
+	void **data,
+	uint32_t *next)
 {
 	uint32_t bucket_idx, idx, position;
 	struct rte_hash_key *next_key;
@@ -1856,4 +1859,211 @@ extend_table:
 	/* Increment iterator */
 	(*next)++;
 	return position - 1;
+}
+VERSION_SYMBOL(rte_hash_iterate, _v1808, 18.08);
+
+int32_t
+rte_hash_iterate_v1811(const struct rte_hash *h,
+	const void **key,
+	void **data,
+	struct rte_hash_iterator_state *state)
+{
+	struct rte_hash_iterator_priv *it;
+	uint32_t bucket_idx, idx, position;
+	struct rte_hash_key *next_key;
+
+	RETURN_IF_TRUE(((h == NULL) || (key == NULL) ||
+		(data == NULL) || (state == NULL)), -EINVAL);
+
+	RTE_BUILD_BUG_ON(sizeof(struct rte_hash_iterator_priv) >
+		sizeof(struct rte_hash_iterator_state));
+
+	it = (struct rte_hash_iterator_priv *)state;
+	if (it->next == 0) {
+		it->total_entries_main = h->num_buckets *
+			RTE_HASH_BUCKET_ENTRIES;
+		it->total_entries = it->total_entries_main << 1;
+	}
+
+	/* Out of bounds of main table buckets */
+	if (it->next >= it->total_entries_main)
+		goto extend_table;
+
+	/* Calculate bucket and index of current iterator */
+	bucket_idx = it->next / RTE_HASH_BUCKET_ENTRIES;
+	idx = it->next % RTE_HASH_BUCKET_ENTRIES;
+
+	/* If current position is empty, go to the next one */
+	while ((position = __atomic_load_n(&h->buckets[bucket_idx].key_idx[idx],
+					__ATOMIC_ACQUIRE)) == EMPTY_SLOT) {
+		it->next++;
+		/* End of table */
+		if (it->next == it->total_entries_main)
+			goto extend_table;
+		bucket_idx = it->next / RTE_HASH_BUCKET_ENTRIES;
+		idx = it->next % RTE_HASH_BUCKET_ENTRIES;
+	}
+
+	__hash_rw_reader_lock(h);
+	next_key = (struct rte_hash_key *) ((char *)h->key_store +
+			position * h->key_entry_size);
+	/* Return key and data */
+	*key = next_key->key;
+	*data = next_key->pdata;
+
+	__hash_rw_reader_unlock(h);
+
+	/* Increment iterator */
+	it->next++;
+
+	return position - 1;
+
+/* Begin to iterate extendable buckets */
+extend_table:
+	/* Out of total bound or if ext bucket feature is not enabled */
+	if (it->next >= it->total_entries || !h->ext_table_support)
+		return -ENOENT;
+
+	bucket_idx = (it->next - it->total_entries_main) /
+		RTE_HASH_BUCKET_ENTRIES;
+	idx = (it->next - it->total_entries_main) % RTE_HASH_BUCKET_ENTRIES;
+
+	while ((position = h->buckets_ext[bucket_idx].key_idx[idx]) ==
+			EMPTY_SLOT) {
+		it->next++;
+		if (it->next == it->total_entries)
+			return -ENOENT;
+		bucket_idx = (it->next - it->total_entries_main) /
+			RTE_HASH_BUCKET_ENTRIES;
+		idx = (it->next - it->total_entries_main) %
+			RTE_HASH_BUCKET_ENTRIES;
+	}
+	__hash_rw_reader_lock(h);
+	next_key = (struct rte_hash_key *) ((char *)h->key_store +
+				position * h->key_entry_size);
+	/* Return key and data */
+	*key = next_key->key;
+	*data = next_key->pdata;
+
+	__hash_rw_reader_unlock(h);
+
+	/* Increment iterator */
+	it->next++;
+	return position - 1;
+}
+MAP_STATIC_SYMBOL(int32_t rte_hash_iterate(const struct rte_hash *h,
+	const void **key, void **data, struct rte_hash_iterator_state *state),
+	rte_hash_iterate_v1811);
+
+uint32_t __rte_experimental
+rte_hash_iterator_get_iter(const struct rte_hash_iterator_state *state)
+{
+	const struct rte_hash_iterator_priv *it;
+	RETURN_IF_TRUE(state == NULL, -EINVAL);
+
+	RTE_BUILD_BUG_ON(sizeof(struct rte_hash_iterator_priv) >
+		sizeof(struct rte_hash_iterator_state));
+
+	it = (const struct rte_hash_iterator_priv *)state;
+
+	return it->next;
+}
+
+uint32_t __rte_experimental
+rte_hash_iterator_set_iter(const struct rte_hash *h,
+	uint32_t next,
+	struct rte_hash_iterator_state *state)
+{
+	struct rte_hash_iterator_priv *it;
+	RETURN_IF_TRUE((h == NULL) || (state == NULL), -EINVAL);
+
+	RTE_BUILD_BUG_ON(sizeof(struct rte_hash_iterator_priv) >
+		sizeof(struct rte_hash_iterator_state));
+
+	it = (struct rte_hash_iterator_priv *)state;
+	it->next = next;
+	it->total_entries_main = h->num_buckets *
+			RTE_HASH_BUCKET_ENTRIES;
+	it->total_entries = it->total_entries_main << 1;
+
+	return 0;
+}
+
+int32_t __rte_experimental
+rte_hash_iterate_conflict_entries_with_hash(struct rte_hash *h,
+	const void **key,
+	void **data,
+	hash_sig_t sig,
+	struct rte_hash_iterator_state *state)
+{
+	struct rte_hash_iterator_conflict_entries_priv *it;
+
+	RETURN_IF_TRUE(((h == NULL) || (key == NULL) ||
+		(data == NULL) || (state == NULL)), -EINVAL);
+
+	RTE_BUILD_BUG_ON(sizeof(
+		struct rte_hash_iterator_conflict_entries_priv) >
+		sizeof(struct rte_hash_iterator_state));
+
+	it = (struct rte_hash_iterator_conflict_entries_priv *)state;
+	if (it->vnext == 0) {
+		uint16_t short_sig = get_short_sig(sig);
+		/*
+		 * Get the primary bucket index given
+		 * the precomputed hash value.
+		 */
+		uint32_t primary_bidx = get_prim_bucket_index(h, sig);
+		/*
+		 * Get the secondary bucket index given
+		 * the precomputed hash value.
+		 */
+		uint32_t secondary_bidx =
+			get_alt_bucket_index(h, primary_bidx, short_sig);
+
+		it->sec_bkt = &h->buckets[secondary_bidx];
+		it->cur_bkt = &h->buckets[primary_bidx];
+	}
+
+	__hash_rw_reader_lock(h);
+	while (true) {
+		uint32_t next = it->vnext & (RTE_HASH_BUCKET_ENTRIES - 1);
+		uint32_t position;
+		struct rte_hash_key *next_key;
+
+		if (it->vnext > RTE_HASH_BUCKET_ENTRIES && next == 0)
+			it->cur_bkt = it->cur_bkt->next;
+		else if (it->vnext == RTE_HASH_BUCKET_ENTRIES)
+			it->cur_bkt = it->sec_bkt;
+
+		if (unlikely(it->cur_bkt == NULL))
+			goto no_entry;
+
+		position = it->cur_bkt->key_idx[next];
+
+		/* Increment iterator. */
+		it->vnext++;
+
+		/*
+		 * The test below is unlikely because this iterator is meant
+		 * to be used after a failed insert.
+		 */
+		if (unlikely(position == EMPTY_SLOT))
+			continue;
+
+		/* Get the entry in key table. */
+		next_key = (struct rte_hash_key *) ((char *)h->key_store +
+				position * h->key_entry_size);
+		/* Return key and data. */
+		*key = next_key->key;
+		*data = next_key->pdata;
+
+		__hash_rw_reader_unlock(h);
+
+		return position - 1;
+	}
+
+no_entry:
+	__hash_rw_reader_unlock(h);
+
+	return -ENOENT;
 }

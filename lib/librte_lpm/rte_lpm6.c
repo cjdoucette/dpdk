@@ -231,10 +231,12 @@ rebuild_lpm(struct rte_lpm6 *lpm)
 {
 	uint64_t next_hop;
 	struct rte_lpm6_rule_key *rule_key;
-	uint32_t iter = 0;
+	struct rte_hash_iterator_state state;
+
+	memset(&state, 0, sizeof(state));
 
 	while (rte_hash_iterate(lpm->rules_tbl, (void *) &rule_key,
-			(void **) &next_hop, &iter) >= 0)
+			(void **) &next_hop, &state) >= 0)
 		rte_lpm6_add(lpm, rule_key->ip, rule_key->depth,
 			(uint32_t) next_hop);
 }

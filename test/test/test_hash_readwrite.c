@@ -200,7 +200,6 @@ test_hash_readwrite_functional(int use_ext, int use_htm)
 	unsigned int i;
 	const void *next_key;
 	void *next_data;
-	uint32_t iter = 0;
 
 	uint32_t duplicated_keys = 0;
 	uint32_t lost_keys = 0;
@@ -208,11 +207,15 @@ test_hash_readwrite_functional(int use_ext, int use_htm)
 	int slave_cnt = rte_lcore_count() - 1;
 	uint32_t tot_insert = 0;
 
+	struct rte_hash_iterator_state state;
+
 	rte_atomic64_init(&gcycles);
 	rte_atomic64_clear(&gcycles);
 
 	rte_atomic64_init(&ginsertions);
 	rte_atomic64_clear(&ginsertions);
+
+	memset(&state, 0, sizeof(state));
 
 	if (init_params(use_ext, use_htm, use_jhash) != 0)
 		goto err;
@@ -237,7 +240,7 @@ test_hash_readwrite_functional(int use_ext, int use_htm)
 	rte_eal_mp_wait_lcore();
 
 	while (rte_hash_iterate(tbl_rw_test_param.h, &next_key,
-			&next_data, &iter) >= 0) {
+			&next_data, &state) >= 0) {
 		/* Search for the key in the list of keys added .*/
 		i = *(const uint32_t *)next_key;
 		tbl_rw_test_param.found[i]++;
@@ -361,8 +364,9 @@ test_hash_readwrite_perf(struct perf *perf_results, int use_htm,
 
 	const void *next_key;
 	void *next_data;
-	uint32_t iter = 0;
 	int use_jhash = 0;
+
+	struct rte_hash_iterator_state state;
 
 	uint32_t duplicated_keys = 0;
 	uint32_t lost_keys = 0;
@@ -378,6 +382,8 @@ test_hash_readwrite_perf(struct perf *perf_results, int use_htm,
 	rte_atomic64_clear(&gread_cycles);
 	rte_atomic64_init(&gwrite_cycles);
 	rte_atomic64_clear(&gwrite_cycles);
+
+	memset(&state, 0, sizeof(state));
 
 	if (init_params(0, use_htm, use_jhash) != 0)
 		goto err;
@@ -537,7 +543,7 @@ test_hash_readwrite_perf(struct perf *perf_results, int use_htm,
 		rte_eal_mp_wait_lcore();
 
 		while (rte_hash_iterate(tbl_rw_test_param.h,
-				&next_key, &next_data, &iter) >= 0) {
+				&next_key, &next_data, &state) >= 0) {
 			/* Search for the key in the list of keys added .*/
 			i = *(const uint32_t *)next_key;
 			tbl_rw_test_param.found[i]++;
