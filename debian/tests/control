@@ -1,0 +1,3 @@
+Tests: test-dkms
+Restrictions: allow-stderr, isolation-machine, needs-root, skippable
+Depends: dpdk-kmods-dkms [amd64 arm64 i386 ppc64el], kmod,

@@ -1,0 +1,6 @@
+Index: dpdk/config/rte_build_config.h
+===================================================================
+--- /dev/null
++++ dpdk/config/rte_build_config.h
+@@ -0,0 +1 @@
++#define RTE_CACHE_LINE_SIZE 64

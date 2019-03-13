@@ -1,0 +1,17 @@
+Source: dpdk-rte-kni-dkms
+Priority: optional
+Maintainer: Andre Nathan <andre@hostnet.com.br>
+Build-Depends: debhelper-compat (= 12), dkms,
+Standards-Version: 4.5.0
+Rules-Requires-Root: no
+Section: kernel
+Homepage: https://www.dpdk.org
+
+Package: dpdk-rte-kni-dkms
+Architecture: amd64 arm64 i386 ppc64el
+Depends: dkms, libelf-dev, make, ${misc:Depends},
+Description: Data Plane Development Kit (dkms)
+ DPDK is a set of libraries for fast packet processing. Applications run
+ in user-space and communicate directly with dedicated network interfaces.
+ .
+ This package contains the source code for the rte_kni kernel module.
