@@ -1023,7 +1023,7 @@ CONFIG_RTE_LIBRTE_IFC_PMD=n
 #
 CONFIG_RTE_LIBRTE_BPF=y
 # allow load BPF from ELF files (requires libelf)
-CONFIG_RTE_LIBRTE_BPF_ELF=n
+CONFIG_RTE_LIBRTE_BPF_ELF=y
 
 #
 # Compile librte_ipsec
