@@ -44,3 +44,13 @@ DPDK_17.05 {
 	rte_lpm6_lookup_bulk_func;
 
 } DPDK_16.04;
+
+EXPERIMENTAL {
+	global:
+
+	rte_lpm_iterator_state_init;
+	rte_lpm_rule_iterate;
+	rte_lpm6_iterator_state_init;
+	rte_lpm6_rule_iterate;
+
+};
