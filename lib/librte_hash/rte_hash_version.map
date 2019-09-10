@@ -58,5 +58,6 @@ EXPERIMENTAL {
 	global:
 
 	rte_hash_free_key_with_position;
+	rte_hash_lookup_bulk_with_hash;
 
 };
