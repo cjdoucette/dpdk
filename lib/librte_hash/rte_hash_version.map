@@ -59,5 +59,7 @@ EXPERIMENTAL {
 
 	rte_hash_free_key_with_position;
 	rte_hash_lookup_bulk_with_hash;
+	rte_hash_prefetch_buckets;
+	rte_hash_prefetch_buckets_non_temporal;
 
 };
