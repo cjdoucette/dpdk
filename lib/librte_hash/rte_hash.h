@@ -706,25 +706,33 @@ rte_hash_iterate(const struct rte_hash *h, const void **key, void **data, uint32
  * @warning
  * @b EXPERIMENTAL: this API may change without prior notice
  *
- * Associate RCU QSBR variable with a Hash object.
- * This API should be called to enable the integrated RCU QSBR support and
- * should be called immediately after creating the Hash object.
+ * Prefetch the candidate buckets into all cache levels.
  *
  * @param h
- *   the hash object to add RCU QSBR
- * @param cfg
- *   RCU QSBR configuration
- * @return
- *   On success - 0
- *   On error - 1 with error code set in rte_errno.
- *   Possible rte_errno codes are:
- *   - EINVAL - invalid pointer
- *   - EEXIST - already added QSBR
- *   - ENOMEM - memory allocation failure
+ *   Hash table to look in.
+ * @param sig
+ *   Precomputed hash values for the key to look for.
  */
 __rte_experimental
-int rte_hash_rcu_qsbr_add(struct rte_hash *h, struct rte_hash_rcu_config *cfg);
+void
+rte_hash_prefetch_buckets(const struct rte_hash *h, hash_sig_t sig);
 
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice
+ *
+ * Prefetch the candidate buckets into all cache levels
+ * (non-temporal/transient version).
+ *
+ * @param h
+ *   Hash table to look in.
+ * @param sig
+ *   Precomputed hash values for the key to look for.
+ */
+__rte_experimental
+void
+rte_hash_prefetch_buckets_non_temporal(const struct rte_hash *h,
+	hash_sig_t sig);
 #ifdef __cplusplus
 }
 #endif
