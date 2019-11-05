@@ -14,6 +14,7 @@
 #include <sys/queue.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <rte_prefetch.h>
 #include <rte_branch_prediction.h>
 #include <rte_byteorder.h>
 #include <rte_config.h>
@@ -424,6 +425,168 @@ rte_lpm_lookup(struct rte_lpm *lpm, uint32_t ip, uint32_t *next_hop)
 		ptbl = (const uint32_t *)&lpm->tbl8[tbl8_index];
 		tbl_entry = *ptbl;
 	}
+
+	*next_hop = ((uint32_t)tbl_entry & 0x00FFFFFF);
+	return (tbl_entry & RTE_LPM_LOOKUP_SUCCESS) ? 0 : -ENOENT;
+}
+
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice
+ *
+ * Prefetch the tbl24 entry into all cache levels.
+ *
+ * @param lpm
+ *   LPM object handle
+ * @param ip
+ *   IP to be looked up in the LPM table
+ */
+__rte_experimental
+static inline void
+rte_lpm_prefetch_tbl24_entry(struct rte_lpm *lpm, uint32_t ip)
+{
+	rte_prefetch0(&lpm->tbl24[(ip >> 8)]);
+}
+
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice
+ *
+ * Prefetch the tbl8 entry into all cache levels.
+ *
+ * @param lpm
+ *   LPM object handle
+ * @param tbl8_index
+ *   Index of the tbl8 entry
+ */
+__rte_experimental
+static inline void
+rte_lpm_prefetch_tbl8_entry(struct rte_lpm *lpm, unsigned tbl8_index)
+{
+	rte_prefetch0(&lpm->tbl8[tbl8_index]);
+}
+
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice
+ *
+ * Prefetch the tbl24 entry into all cache levels
+ * (non-temporal/transient version).
+ *
+ * @param lpm
+ *   LPM object handle
+ * @param ip
+ *   IP to be looked up in the LPM table
+ */
+__rte_experimental
+static inline void
+rte_lpm_prefetch_tbl24_entry_non_temporal(struct rte_lpm *lpm, uint32_t ip)
+{
+	rte_prefetch_non_temporal(&lpm->tbl24[(ip >> 8)]);
+}
+
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice
+ *
+ * Prefetch the tbl8 entry into all cache levels
+ * (non-temporal/transient version).
+ *
+ * @param lpm
+ *   LPM object handle
+ * @param tbl8_index
+ *   Index of the tbl8 entry
+ */
+__rte_experimental
+static inline void
+rte_lpm_prefetch_tbl8_entry_non_temporal(struct rte_lpm *lpm,
+	unsigned tbl8_index)
+{
+	rte_prefetch_non_temporal(&lpm->tbl8[tbl8_index]);
+}
+
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice
+ *
+ * Lookup an IP into the LPM table in the first level.
+ *
+ * @param lpm
+ *   LPM object handle
+ * @param tbl8_index
+ *   Pointer to the index of the tbl8 table
+ * @param ip
+ *   IP to be looked up in the LPM table
+ * @param next_hop
+ *   Next hop of the most specific rule found for IP (valid on lookup hit only)
+ * @return
+ *   -EINVAL for incorrect arguments, -ENOENT on lookup miss, 0 on lookup hit,
+ *   1 if the process needs to be continued by calling the function
+ *   rte_lpm_lookup_step2()
+ */
+__rte_experimental
+static inline int
+rte_lpm_lookup_step1(struct rte_lpm *lpm, unsigned *tbl8_index,
+	uint32_t ip, uint32_t *next_hop)
+{
+	unsigned tbl24_index = (ip >> 8);
+	uint32_t tbl_entry;
+	const uint32_t *ptbl;
+
+	/* DEBUG: Check user input arguments. */
+	RTE_LPM_RETURN_IF_TRUE(((lpm == NULL) || (next_hop == NULL)), -EINVAL);
+
+	/* Copy tbl24 entry */
+	ptbl = (const uint32_t *)(&lpm->tbl24[tbl24_index]);
+	tbl_entry = *ptbl;
+
+	/* Memory ordering is not required in lookup. Because dataflow
+	 * dependency exists, compiler or HW won't be able to re-order
+	 * the operations.
+	 */
+	/* Copy tbl8 entry (only if needed) */
+	if (unlikely((tbl_entry & RTE_LPM_VALID_EXT_ENTRY_BITMASK) ==
+			RTE_LPM_VALID_EXT_ENTRY_BITMASK)) {
+
+		*tbl8_index = (uint8_t)ip +
+				(((uint32_t)tbl_entry & 0x00FFFFFF) *
+						RTE_LPM_TBL8_GROUP_NUM_ENTRIES);
+
+		return 1;
+	}
+
+	*next_hop = ((uint32_t)tbl_entry & 0x00FFFFFF);
+	return (tbl_entry & RTE_LPM_LOOKUP_SUCCESS) ? 0 : -ENOENT;
+}
+
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice
+ *
+ * Lookup an IP into the LPM table in the second level.
+ *
+ * @param lpm
+ *   LPM object handle
+ * @param tbl8_index
+ *   Index to the tbl8 table
+ * @param next_hop
+ *   Next hop of the most specific rule found for IP (valid on lookup hit only)
+ * @return
+ *   -EINVAL for incorrect arguments, -ENOENT on lookup miss, 0 on lookup hit
+ */
+__rte_experimental
+static inline int
+rte_lpm_lookup_step2(struct rte_lpm *lpm, unsigned tbl8_index,
+	uint32_t *next_hop)
+{
+	uint32_t tbl_entry;
+	const uint32_t *ptbl;
+
+	/* DEBUG: Check user input arguments. */
+	RTE_LPM_RETURN_IF_TRUE(((lpm == NULL) || (next_hop == NULL)), -EINVAL);
+
+	ptbl = (const uint32_t *)&lpm->tbl8[tbl8_index];
+	tbl_entry = *ptbl;
 
 	*next_hop = ((uint32_t)tbl_entry & 0x00FFFFFF);
 	return (tbl_entry & RTE_LPM_LOOKUP_SUCCESS) ? 0 : -ENOENT;

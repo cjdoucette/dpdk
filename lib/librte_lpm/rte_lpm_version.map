@@ -44,3 +44,15 @@ DPDK_17.05 {
 	rte_lpm6_lookup_bulk_func;
 
 } DPDK_16.04;
+
+EXPERIMENTAL {
+	global:
+
+	rte_lpm_prefetch_tbl24_entry;
+	rte_lpm_prefetch_tbl8_entry;
+	rte_lpm_prefetch_tbl24_entry_non_temporal;
+	rte_lpm_prefetch_tbl8_entry_non_temporal;
+	rte_lpm_lookup_step1;
+	rte_lpm_lookup_step2;
+
+};
