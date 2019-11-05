@@ -429,6 +429,65 @@ rte_lpm_lookup(struct rte_lpm *lpm, uint32_t ip, uint32_t *next_hop)
 	return (tbl_entry & RTE_LPM_LOOKUP_SUCCESS) ? 0 : -ENOENT;
 }
 
+typedef void (*rte_lpm_yield_func)(const void *addr, void *arg);
+
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice
+ *
+ * Lookup an IP into the LPM table and yield.
+ *
+ * @param lpm
+ *   LPM object handle
+ * @param ip
+ *   IP to be looked up in the LPM table
+ * @param next_hop
+ *   Next hop of the most specific rule found for IP (valid on lookup hit only)
+ * @param yield_func
+ *   Function used to prefetch and then yield.
+ * @param arg
+ *   Parameter passed to the function yield_func.
+ * @return
+ *   -EINVAL for incorrect arguments, -ENOENT on lookup miss, 0 on lookup hit
+ */
+__rte_experimental
+static inline int
+rte_lpm_lookup_and_yield(struct rte_lpm *lpm, uint32_t ip, uint32_t *next_hop,
+	rte_lpm_yield_func yield_func, void *arg)
+{
+	unsigned tbl24_index = (ip >> 8);
+	uint32_t tbl_entry;
+	const uint32_t *ptbl;
+
+	/* DEBUG: Check user input arguments. */
+	RTE_LPM_RETURN_IF_TRUE(((lpm == NULL) || (next_hop == NULL)), -EINVAL);
+
+	/* Copy tbl24 entry */
+	ptbl = (const uint32_t *)(&lpm->tbl24[tbl24_index]);
+	yield_func(ptbl, arg);
+	tbl_entry = *ptbl;
+
+	/* Memory ordering is not required in lookup. Because dataflow
+	 * dependency exists, compiler or HW won't be able to re-order
+	 * the operations.
+	 */
+	/* Copy tbl8 entry (only if needed) */
+	if (unlikely((tbl_entry & RTE_LPM_VALID_EXT_ENTRY_BITMASK) ==
+			RTE_LPM_VALID_EXT_ENTRY_BITMASK)) {
+
+		unsigned tbl8_index = (uint8_t)ip +
+				(((uint32_t)tbl_entry & 0x00FFFFFF) *
+						RTE_LPM_TBL8_GROUP_NUM_ENTRIES);
+
+		ptbl = (const uint32_t *)&lpm->tbl8[tbl8_index];
+		yield_func(ptbl, arg);
+		tbl_entry = *ptbl;
+	}
+
+	*next_hop = ((uint32_t)tbl_entry & 0x00FFFFFF);
+	return (tbl_entry & RTE_LPM_LOOKUP_SUCCESS) ? 0 : -ENOENT;
+}
+
 /**
  * Lookup multiple IP addresses in an LPM table. This may be implemented as a
  * macro, so the address of the function should not be used.
