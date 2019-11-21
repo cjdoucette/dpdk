@@ -1339,6 +1339,215 @@ rte_hash_lookup_with_hash(const struct rte_hash *h,
 	return __rte_hash_lookup_with_hash(h, key, sig, NULL);
 }
 
+/* Search one bucket to find the match key - uses rw lock and yield */
+static inline int32_t
+search_one_bucket_and_yield_l(const struct rte_hash *h, const void *key,
+	uint16_t sig, void **data, const struct rte_hash_bucket *bkt,
+	rte_hash_yield_func yield_func, void *arg)
+{
+	int i;
+	struct rte_hash_key *k, *keys = h->key_store;
+
+	for (i = 0; i < RTE_HASH_BUCKET_ENTRIES; i++) {
+		if (bkt->sig_current[i] == sig &&
+				bkt->key_idx[i] != EMPTY_SLOT) {
+			k = (struct rte_hash_key *) ((char *)keys +
+					bkt->key_idx[i] * h->key_entry_size);
+			yield_func(k, arg);
+
+			if (rte_hash_cmp_eq(key, k->key, h) == 0) {
+				if (data != NULL)
+					*data = k->pdata;
+				/*
+				 * Return index where key is stored,
+				 * subtracting the first dummy index
+				 */
+				return bkt->key_idx[i] - 1;
+			}
+		}
+	}
+	return -1;
+}
+
+/* Search one bucket to find the match key and yield */
+static inline int32_t
+search_one_bucket_and_yield_lf(const struct rte_hash *h, const void *key,
+	uint16_t sig, void **data, const struct rte_hash_bucket *bkt,
+	rte_hash_yield_func yield_func, void *arg)
+{
+	int i;
+	uint32_t key_idx;
+	struct rte_hash_key *k, *keys = h->key_store;
+
+	for (i = 0; i < RTE_HASH_BUCKET_ENTRIES; i++) {
+		/* Signature comparison is done before the acquire-load
+		 * of the key index to achieve better performance.
+		 * This can result in the reader loading old signature
+		 * (which matches), while the key_idx is updated to a
+		 * value that belongs to a new key. However, the full
+		 * key comparison will ensure that the lookup fails.
+		 */
+		if (bkt->sig_current[i] == sig) {
+			key_idx = __atomic_load_n(&bkt->key_idx[i],
+					  __ATOMIC_ACQUIRE);
+			if (key_idx != EMPTY_SLOT) {
+				k = (struct rte_hash_key *) ((char *)keys +
+						key_idx * h->key_entry_size);
+				yield_func(k, arg);
+
+				if (rte_hash_cmp_eq(key, k->key, h) == 0) {
+					if (data != NULL) {
+						*data = __atomic_load_n(
+							&k->pdata,
+							__ATOMIC_ACQUIRE);
+					}
+					/*
+					 * Return index where key is stored,
+					 * subtracting the first dummy index
+					 */
+					return key_idx - 1;
+				}
+			}
+		}
+	}
+	return -1;
+}
+
+static inline int32_t
+__rte_hash_lookup_and_yield_with_hash_l(const struct rte_hash *h,
+	const void *key, hash_sig_t sig, void **data,
+	rte_hash_yield_func yield_func, void *arg)
+{
+	uint32_t prim_bucket_idx, sec_bucket_idx;
+	struct rte_hash_bucket *bkt, *cur_bkt;
+	int ret;
+	uint16_t short_sig;
+
+	short_sig = get_short_sig(sig);
+	prim_bucket_idx = get_prim_bucket_index(h, sig);
+	sec_bucket_idx = get_alt_bucket_index(h, prim_bucket_idx, short_sig);
+
+	bkt = &h->buckets[prim_bucket_idx];
+	yield_func(bkt, arg);
+
+	__hash_rw_reader_lock(h);
+
+	/* Check if key is in primary location */
+	ret = search_one_bucket_and_yield_l(h, key, short_sig, data, bkt,
+		yield_func, arg);
+	if (ret != -1) {
+		__hash_rw_reader_unlock(h);
+		return ret;
+	}
+	/* Calculate secondary hash */
+	bkt = &h->buckets[sec_bucket_idx];
+
+	/* Check if key is in secondary location */
+	FOR_EACH_BUCKET(cur_bkt, bkt) {
+		yield_func(cur_bkt, arg);
+		ret = search_one_bucket_and_yield_l(h, key, short_sig,
+			data, cur_bkt, yield_func, arg);
+		if (ret != -1) {
+			__hash_rw_reader_unlock(h);
+			return ret;
+		}
+	}
+
+	__hash_rw_reader_unlock(h);
+
+	return -ENOENT;
+}
+
+static inline int32_t
+__rte_hash_lookup_and_yield_with_hash_lf(const struct rte_hash *h,
+	const void *key, hash_sig_t sig, void **data,
+	rte_hash_yield_func yield_func, void *arg)
+{
+	uint32_t prim_bucket_idx, sec_bucket_idx;
+	struct rte_hash_bucket *bkt, *cur_bkt;
+	uint32_t cnt_b, cnt_a;
+	int ret;
+	uint16_t short_sig;
+
+	short_sig = get_short_sig(sig);
+	prim_bucket_idx = get_prim_bucket_index(h, sig);
+	sec_bucket_idx = get_alt_bucket_index(h, prim_bucket_idx, short_sig);
+
+	do {
+		/* Load the table change counter before the lookup
+		 * starts. Acquire semantics will make sure that
+		 * loads in search_one_bucket are not hoisted.
+		 */
+		cnt_b = __atomic_load_n(h->tbl_chng_cnt,
+				__ATOMIC_ACQUIRE);
+
+		/* Check if key is in primary location */
+		bkt = &h->buckets[prim_bucket_idx];
+		yield_func(bkt, arg);
+		ret = search_one_bucket_and_yield_lf(h, key, short_sig, data,
+			bkt, yield_func, arg);
+		if (ret != -1) {
+			__hash_rw_reader_unlock(h);
+			return ret;
+		}
+		/* Calculate secondary hash */
+		bkt = &h->buckets[sec_bucket_idx];
+
+		/* Check if key is in secondary location */
+		FOR_EACH_BUCKET(cur_bkt, bkt) {
+			yield_func(cur_bkt, arg);
+			ret = search_one_bucket_and_yield_lf(h, key, short_sig,
+				data, cur_bkt, yield_func, arg);
+			if (ret != -1) {
+				__hash_rw_reader_unlock(h);
+				return ret;
+			}
+		}
+
+		/* The loads of sig_current in search_one_bucket
+		 * should not move below the load from tbl_chng_cnt.
+		 */
+		__atomic_thread_fence(__ATOMIC_ACQUIRE);
+		/* Re-read the table change counter to check if the
+		 * table has changed during search. If yes, re-do
+		 * the search.
+		 * This load should not get hoisted. The load
+		 * acquires on cnt_b, key index in primary bucket
+		 * and key index in secondary bucket will make sure
+		 * that it does not get hoisted.
+		 */
+		cnt_a = __atomic_load_n(h->tbl_chng_cnt,
+					__ATOMIC_ACQUIRE);
+	} while (cnt_b != cnt_a);
+
+	return -ENOENT;
+}
+
+static inline int32_t
+__rte_hash_lookup_and_yield_with_hash(const struct rte_hash *h,
+	const void *key, hash_sig_t sig, void **data,
+	rte_hash_yield_func yield_func, void *arg)
+{
+	if (h->readwrite_concur_lf_support) {
+		return __rte_hash_lookup_and_yield_with_hash_lf(h, key, sig,
+			data, yield_func, arg);
+	} else {
+		return __rte_hash_lookup_and_yield_with_hash_l(h, key, sig,
+			data, yield_func, arg);
+	}
+}
+
+int32_t
+rte_hash_lookup_and_yield_with_hash(const struct rte_hash *h,
+	const void *key, hash_sig_t sig, rte_hash_yield_func yield_func,
+	void *arg)
+{
+	RETURN_IF_TRUE(((h == NULL) || (key == NULL) || (yield_func == NULL) ||
+		(arg == NULL)), -EINVAL);
+	return __rte_hash_lookup_and_yield_with_hash(h, key, sig, NULL,
+		yield_func, arg);
+}
+
 int32_t
 rte_hash_lookup(const struct rte_hash *h, const void *key)
 {

@@ -608,6 +608,40 @@ __rte_experimental
 void
 rte_hash_prefetch_buckets_non_temporal(const struct rte_hash *h,
 	hash_sig_t sig);
+
+typedef void (*rte_hash_yield_func)(void *addr, void *arg);
+
+/**
+ * @warning
+ * @b EXPERIMENTAL: this API may change without prior notice
+ *
+ * Find a key in the hash table with yield.
+ * This operation is multi-thread safe with regarding to other lookup threads.
+ * Read-write concurrency can be enabled by setting flag during
+ * table creation.
+ *
+ * @param h
+ *   Hash table to look in.
+ * @param key
+ *   Key to find.
+ * @param sig
+ *   Precomputed hash value for 'key'.
+ * @param yield_func
+ *   Function used to prefetch and then yield.
+ * @param arg
+ *   Parameter passed to the function yield_func.
+ * @return
+ *   - -EINVAL if the parameters are invalid.
+ *   - -ENOENT if the key is not found.
+ *   - A positive value that can be used by the caller as an offset into an
+ *     array of user data. This value is unique for this key, and is the same
+ *     value that was returned when the key was added.
+ */
+__rte_experimental
+int32_t
+rte_hash_lookup_and_yield_with_hash(const struct rte_hash *h,
+	const void *key, hash_sig_t sig, rte_hash_yield_func yield_func,
+	void *arg);
 #ifdef __cplusplus
 }
 #endif

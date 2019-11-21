@@ -61,5 +61,6 @@ EXPERIMENTAL {
 	rte_hash_lookup_bulk_with_hash;
 	rte_hash_prefetch_buckets;
 	rte_hash_prefetch_buckets_non_temporal;
+	rte_hash_lookup_and_yield_with_hash;
 
 };
