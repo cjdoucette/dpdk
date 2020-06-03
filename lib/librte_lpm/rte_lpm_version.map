@@ -44,3 +44,11 @@ DPDK_17.05 {
 	rte_lpm6_lookup_bulk_func;
 
 } DPDK_16.04;
+
+EXPERIMENTAL {
+	global:
+
+	rte_lpm6_get_max_rules;
+	rte_lpm6_get_num_tbl8s;
+
+};
