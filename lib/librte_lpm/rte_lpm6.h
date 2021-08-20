@@ -25,7 +25,7 @@ extern "C" {
 /** Rules tbl entry structure. */
 struct rte_lpm6_rule {
 	uint8_t ip[RTE_LPM6_IPV6_ADDR_SIZE]; /**< Rule IP address. */
-	uint8_t next_hop; /**< Rule next hop. */
+	uint32_t next_hop; /**< Rule next hop. */
 	uint8_t depth; /**< Rule depth. */
 };
 

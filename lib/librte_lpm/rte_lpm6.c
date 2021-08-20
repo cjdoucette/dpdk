@@ -261,7 +261,7 @@ int
 rte_lpm6_rule_iterate(struct rte_lpm6_iterator_state *state,
 	struct rte_lpm6_rule *rule)
 {
-	uint64_t next_hop;
+	uintptr_t next_hop;
 	struct rte_lpm6_rule_key *rule_key;
 
 	/* Check user arguments. */
@@ -269,8 +269,8 @@ rte_lpm6_rule_iterate(struct rte_lpm6_iterator_state *state,
 		return -EINVAL;
 
 	/* Scan rules hash table to find matched rules. */
-	while (rte_hash_iterate(state->lpm->rules_tbl, (void *) &rule_key,
-			(void **) &next_hop, &state->next) >= 0) {
+	while (rte_hash_iterate(state->lpm->rules_tbl, (void *)&rule_key,
+			(void **)&next_hop, &state->next) >= 0) {
 		uint8_t rule_ip_masked[RTE_LPM6_IPV6_ADDR_SIZE];
 
 		if (rule_key->depth < state->depth)
@@ -282,9 +282,9 @@ rte_lpm6_rule_iterate(struct rte_lpm6_iterator_state *state,
 		/* If rule is found return the rule index. */
 		if ((memcmp(state->ip_masked, rule_ip_masked,
 				RTE_LPM6_IPV6_ADDR_SIZE) == 0)) {
-			rule->depth = rule_key->depth;
 			ip6_copy_addr(rule->ip, rule_key->ip);
 			rule->next_hop = next_hop;
+			rule->depth = rule_key->depth;
 			return 0;
 		}
 	}
