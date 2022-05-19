@@ -1,5 +1,5 @@
-gatekeeper-dpdk (19.08.0-0) bionic; urgency=medium
+dpdk-rte-kni-dkms (20.11.3-0ubuntu+gatekeeper1) focal; urgency=high
 
-  * First build.
+  * Build for Ubuntu 20.04.
 
- -- Andre Nathan <andre@digirati.com.br>  Thu, 14 Aug 2019 10:11:30 -0300
+ -- Andre Nathan <andre@digirati.com.br>  Tue, 17 May 2022 16:34:34 -0300
