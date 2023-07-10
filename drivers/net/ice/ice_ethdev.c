@@ -3005,7 +3005,8 @@ static int ice_init_rss(struct ice_pf *pf)
 
 	rss_conf = &dev->data->dev_conf.rx_adv_conf.rss_conf;
 	nb_q = dev->data->nb_rx_queues;
-	vsi->rss_key_size = ICE_AQC_GET_SET_RSS_KEY_DATA_RSS_KEY_SIZE;
+	vsi->rss_key_size = ICE_AQC_GET_SET_RSS_KEY_DATA_RSS_KEY_SIZE +
+			    ICE_AQC_GET_SET_RSS_KEY_DATA_HASH_KEY_SIZE;
 	vsi->rss_lut_size = pf->hash_lut_size;
 
 	if (nb_q == 0) {
@@ -3047,7 +3048,11 @@ static int ice_init_rss(struct ice_pf *pf)
 			   RTE_MIN(rss_conf->rss_key_len,
 				   vsi->rss_key_size));
 	}
-	rte_memcpy(key.standard_rss_key, vsi->rss_key, vsi->rss_key_size);
+	rte_memcpy(key.standard_rss_key, vsi->rss_key,
+			ICE_AQC_GET_SET_RSS_KEY_DATA_RSS_KEY_SIZE);
+	rte_memcpy(key.extended_hash_key,
+		&vsi->rss_key[ICE_AQC_GET_SET_RSS_KEY_DATA_RSS_KEY_SIZE],
+		ICE_AQC_GET_SET_RSS_KEY_DATA_HASH_KEY_SIZE);
 	ret = ice_aq_set_rss_key(hw, vsi->idx, &key);
 	if (ret)
 		goto out;
